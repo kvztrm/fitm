@@ -1,25 +1,21 @@
---// AutoFish: Background Scanner → Discord Webhook (using your lewisakura proxy)
---// Uses .ObjectText instead of .Text | Threshold 50% for testing
+-- AutoFish: Background Scanner → Discord Webhook
+-- Uses .ObjectText | Max possible: 500% | Threshold 50% for testing | Full debug
 
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
--- ════════════════════════════════════════════════════════════
---  CONFIG
--- ════════════════════════════════════════════════════════════
-
 local WEBHOOK_URL = "https://webhook.lewisakura.moe/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
-local THRESHOLD = 50   -- TESTING VALUE
+local THRESHOLD = 50     -- keep low for testing
+local MAX_POSSIBLE = 500 -- informational (not enforced)
 
--- Customize the message here
 local EMBED_TITLE = "Fish Spawn Detected (TEST MODE)"
-local EMBED_COLOR = 0x55AA55  -- greenish for testing
+local EMBED_COLOR = 0x55AA55
 
--- ════════════════════════════════════════════════════════════
---  References
--- ════════════════════════════════════════════════════════════
+-- Debug toggle - set to false later to quiet it down
+local DEBUG = true
 
+-- References
 local folder1 = workspace:WaitForChild("FrameWork_WorkSpace", 10)
     :WaitForChild("FishPPPart", 5)
     :WaitForChild("Folder1", 5)
@@ -28,26 +24,36 @@ local displayObj = folder1:GetChildren()[14]
 local ppPart = displayObj and displayObj:FindFirstChild("PPPart_PP")
 
 if not ppPart then
-    warn("[FishWebhook] PPPart_PP not found")
+    warn("[FishWebhook DEBUG] PPPart_PP not found at Folder1:GetChildren()[14]")
     return
 end
 
--- ════════════════════════════════════════════════════════════
---  Extraction Logic
--- ════════════════════════════════════════════════════════════
+print("[FishWebhook DEBUG] Found PPPart_PP → " .. ppPart:GetFullName())
+print("[FishWebhook DEBUG] Monitoring started | Threshold: " .. THRESHOLD .. "% | Max possible: " .. MAX_POSSIBLE .. "% | DEBUG enabled")
 
+-- Extraction + Debug
 local lastText = ""
 local lastValue = 0
 
 local function extractPercentageAndFish(rawText)
-    if typeof(rawText) ~= "string" or rawText == lastText then
+    if typeof(rawText) ~= "string" or rawText == "" then
+        if DEBUG then print("[DEBUG] ObjectText is empty or not a string") end
+        return nil, nil
+    end
+
+    if rawText == lastText then
+        --if DEBUG then print("[DEBUG] Text unchanged") end  -- uncomment if you want every-frame spam
         return lastValue, nil
+    end
+
+    if DEBUG then
+        print("[DEBUG] New ObjectText:")
+        print("  Raw: \"" .. rawText .. "\"")
     end
 
     lastText = rawText
     local text = rawText:lower():gsub(" ", "")
 
-    -- Find percentage
     local patterns = {
         "(%d+%.?%d*)%%",
         "(%d+%.?%d*) ?percent",
@@ -64,26 +70,52 @@ local function extractPercentageAndFish(rawText)
         end
     end
 
-    if not value or value < THRESHOLD then return nil, nil end
+    if not value then
+        if DEBUG then print("[DEBUG] No percentage found in text") end
+        return nil, nil
+    end
 
-    -- Guess fish name (improve this if you know the exact format)
+    if DEBUG then
+        print("[DEBUG] Extracted: " .. value .. "%")
+    end
+
+    if value < THRESHOLD then
+        if DEBUG then 
+            print("[DEBUG] " .. value .. "% < threshold " .. THRESHOLD .. "% → skipped")
+        end
+        return nil, nil
+    end
+
+    if value == lastValue then
+        if DEBUG then 
+            print("[DEBUG] Same as previous (" .. value .. "%) → no new webhook")
+        end
+        return nil, nil
+    end
+
+    -- Optional: warn if somehow > max possible (for sanity)
+    if value > MAX_POSSIBLE then
+        warn("[DEBUG] Warning: Detected " .. value .. "% — exceeds known max of " .. MAX_POSSIBLE .. "%")
+    end
+
     local fishName = text:match("([%w%s]+)%d+%%") 
-                  or text:match("([%w%s]+) at %d+%%") 
-                  or text:match("([%w%s]+) %d+%%") 
+                  or text:match("([%w%s]+)at%d+%%") 
+                  or text:match("([%w%s]+)%d+%%") 
                   or rawText:match("([%w%s]+)%d+")  
                   or "Unknown Fish"
 
     fishName = fishName:gsub("^%s*(.-)%s*$", "%1"):gsub("%s+", " ")
     if fishName == "" then fishName = "Mystery Fish" end
 
+    if DEBUG then
+        print("[DEBUG] Fish detected: " .. fishName .. " at " .. value .. "%")
+    end
+
     lastValue = value
     return value, fishName
 end
 
--- ════════════════════════════════════════════════════════════
---  Send Webhook
--- ════════════════════════════════════════════════════════════
-
+-- Send Webhook + Debug
 local function sendWebhook(value, fishName)
     local data = {
         embeds = {
@@ -103,33 +135,35 @@ local function sendWebhook(value, fishName)
 
     local json = HttpService:JSONEncode(data)
 
+    if DEBUG then
+        print("[DEBUG] Sending webhook → " .. fishName .. " (" .. value .. "%)")
+    end
+
     local success, err = pcall(function()
         HttpService:PostAsync(WEBHOOK_URL, json, Enum.HttpContentType.ApplicationJson)
     end)
 
     if success then
-        print("[FishWebhook TEST] Sent → " .. fishName .. " (" .. value .. "%)")
+        print("[FishWebhook TEST] SUCCESS → " .. fishName .. " (" .. value .. "%)")
     else
-        warn("[FishWebhook TEST] Failed: " .. tostring(err))
+        warn("[FishWebhook TEST] FAILED: " .. tostring(err))
     end
 end
 
--- ════════════════════════════════════════════════════════════
---  Background Scanning (every frame)
--- ════════════════════════════════════════════════════════════
-
+-- Scanning loop
 RunService.Heartbeat:Connect(function()
-    -- Changed from .Text to .ObjectText
     local text = ppPart.ObjectText
         or (ppPart:FindFirstChildWhichIsA("TextLabel") and ppPart:FindFirstChildWhichIsA("TextLabel").ObjectText)
         or (ppPart:FindFirstChild("SurfaceGui") and ppPart.SurfaceGui:FindFirstChildWhichIsA("TextLabel") and ppPart.SurfaceGui:FindFirstChildWhichIsA("TextLabel").ObjectText)
 
-    if text and text ~= "" then
-        local value, fishName = extractPercentageAndFish(text)
-        if value then
-            sendWebhook(value, fishName)
-        end
+    if not text or text == "" then
+        return
+    end
+
+    local value, fishName = extractPercentageAndFish(text)
+    if value then
+        sendWebhook(value, fishName)
     end
 end)
 
-print("[FishWebhook TEST] Active → Monitoring for ≥" .. THRESHOLD .. "% using .ObjectText | Your lewisakura proxy")
+print("[FishWebhook DEBUG] Ready | Watching " .. ppPart:GetFullName() .. " | Threshold: " .. THRESHOLD .. "%")
