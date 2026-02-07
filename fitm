@@ -1,17 +1,13 @@
--- AutoFish: Background Scanner → Discord Webhook
--- Fixed nil concatenation crash | .ObjectText | Threshold 50% for testing | Debug enabled
+-- AutoFish: Background Scanner → Discord Webhook via Proxy
+-- .ObjectText | Threshold 50% for testing | Nil crash fixed
 
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
+-- Proxied URL (this works in live games; direct discord.com does NOT)
 local WEBHOOK_URL = "https://webhook.lewisakura.moe/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
 local THRESHOLD = 50
-local MAX_POSSIBLE = 500
-
-local EMBED_TITLE = "Fish Spawn Detected (TEST MODE)"
-local EMBED_COLOR = 0x55AA55
-
 local DEBUG = true
 
 -- References
@@ -23,44 +19,31 @@ local displayObj = folder1:GetChildren()[14]
 local ppPart = displayObj and displayObj:FindFirstChild("PPPart_PP")
 
 if not ppPart then
-    warn("[FishWebhook DEBUG] PPPart_PP not found at Folder1:GetChildren()[14]")
+    warn("[FishWebhook] PPPart_PP not found!")
     return
 end
 
-print("[FishWebhook DEBUG] Found PPPart_PP → " .. ppPart:GetFullName())
-print("[FishWebhook DEBUG] Monitoring active | Threshold: " .. THRESHOLD .. "% | Max: " .. MAX_POSSIBLE .. "%")
+print("[FishWebhook] Monitoring: " .. ppPart:GetFullName() .. " | Using proxy")
 
--- Extraction
 local lastText = ""
 local lastValue = 0
 
 local function extractPercentageAndFish(rawText)
-    if typeof(rawText) ~= "string" or rawText == "" then
-        if DEBUG then print("[DEBUG] ObjectText empty or not string") end
-        return nil, nil
-    end
+    if typeof(rawText) ~= "string" or rawText == "" then return nil, nil end
+    if rawText == lastText then return lastValue, nil end
 
-    if rawText == lastText then
-        return lastValue, nil
-    end
-
-    if DEBUG then
-        print("[DEBUG] New ObjectText:")
-        print("  Raw: \"" .. rawText .. "\"")
-    end
+    if DEBUG then print("[DEBUG] Raw text: \"" .. rawText .. "\"") end
 
     lastText = rawText
     local text = rawText:lower():gsub(" ", "")
 
-    local patterns = {
+    local value
+    for _, pat in ipairs({
         "(%d+%.?%d*)%%",
         "(%d+%.?%d*) ?percent",
         "(%d+)%%?",
         "over (%d+)"
-    }
-
-    local value
-    for _, pat in ipairs(patterns) do
+    }) do
         local numStr = text:match(pat)
         if numStr then
             value = tonumber(numStr)
@@ -68,22 +51,8 @@ local function extractPercentageAndFish(rawText)
         end
     end
 
-    if not value then
-        if DEBUG then print("[DEBUG] No percentage found") end
-        return nil, nil
-    end
-
-    if DEBUG then print("[DEBUG] Parsed: " .. value .. "%") end
-
-    if value < THRESHOLD then
-        if DEBUG then print("[DEBUG] " .. value .. "% < " .. THRESHOLD .. "% → ignored") end
-        return nil, nil
-    end
-
-    if value == lastValue then
-        if DEBUG then print("[DEBUG] Same value as last (" .. value .. "%) → skipped") end
-        return nil, nil
-    end
+    if not value or value < THRESHOLD then return nil, nil end
+    if value == lastValue then return nil, nil end
 
     local fishName = text:match("([%w%s]+)%d+%%") 
                   or text:match("([%w%s]+)at%d+%%") 
@@ -94,74 +63,53 @@ local function extractPercentageAndFish(rawText)
     fishName = fishName:gsub("^%s*(.-)%s*$", "%1"):gsub("%s+", " ")
     if fishName == "" then fishName = "Unknown Fish" end
 
-    if DEBUG then
-        print("[DEBUG] Detected → " .. fishName .. " at " .. value .. "%")
-    end
-
     lastValue = value
     return value, fishName
 end
 
--- Safe webhook sender
 local function sendWebhook(value, fishName)
-    -- Safety fallbacks
     fishName = fishName or "Unknown Fish"
     value = value or 0
 
     local description = fishName .. " detected at **" .. tostring(value) .. "%**!"
 
-    if DEBUG then
-        print("[DEBUG] Sending webhook: " .. description)
-    end
+    if DEBUG then print("[DEBUG] Sending: " .. description) end
 
     local data = {
-        embeds = {
-            {
-                title = EMBED_TITLE,
-                description = description,
-                color = EMBED_COLOR,
-                fields = {
-                    { name = "Percentage", value = tostring(value) .. "%", inline = true },
-                    { name = "Fish", value = fishName, inline = true }
-                },
-                timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
-                footer = { text = "TEST MODE • AutoFish Scanner" }
-            }
-        }
+        embeds = {{
+            title = "Fish Spawn Detected (TEST)",
+            description = description,
+            color = 0x55AA55,
+            fields = {
+                {name = "Percentage", value = tostring(value) .. "%", inline = true},
+                {name = "Fish", value = fishName, inline = true}
+            },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        }}
     }
 
-    local json = HttpService:JSONEncode(data)
-
     local success, err = pcall(function()
-        HttpService:PostAsync(WEBHOOK_URL, json, Enum.HttpContentType.ApplicationJson)
+        HttpService:PostAsync(WEBHOOK_URL, HttpService:JSONEncode(data), Enum.HttpContentType.ApplicationJson)
     end)
 
     if success then
-        print("[FishWebhook TEST] SUCCESS → " .. fishName .. " (" .. value .. "%)")
+        print("[SUCCESS] Sent: " .. fishName .. " (" .. value .. "%)")
     else
-        warn("[FishWebhook TEST] FAILED: " .. tostring(err))
+        warn("[ERROR] Failed: " .. tostring(err))
     end
 end
 
--- Scanning loop
 RunService.Heartbeat:Connect(function()
     local text = ppPart.ObjectText
         or (ppPart:FindFirstChildWhichIsA("TextLabel") and ppPart:FindFirstChildWhichIsA("TextLabel").ObjectText)
         or (ppPart:FindFirstChild("SurfaceGui") and ppPart.SurfaceGui:FindFirstChildWhichIsA("TextLabel") and ppPart.SurfaceGui:FindFirstChildWhichIsA("TextLabel").ObjectText)
 
-    if not text or text == "" then
-        return
-    end
+    if not text or text == "" then return end
 
     local value, fishName = extractPercentageAndFish(text)
-
-    if value and fishName then
+    if value then
         sendWebhook(value, fishName)
-    elseif value then
-        -- fallback if fishName somehow nil
-        if DEBUG then print("[DEBUG] Value found but fishName was nil → using fallback name") end
-        sendWebhook(value, "Unknown Fish")
     end
 end)
 
-print("[FishWebhook DEBUG] Script running — check Output for progress")
+print("[FishWebhook] Active - threshold " .. THRESHOLD .. "%")
