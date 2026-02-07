@@ -1,21 +1,23 @@
--- AutoFish: Discord Webhook Notifier (Inspired by Roblox webhook tutorials)
--- Embed style with title, fields, color, timestamp | Threshold 50% for testing | Proxy used
+-- AutoFish: Discord Webhook Notifier (Rewritten + Improved)
+-- Detects high % in PPPart_PP.ObjectText → sends nice embed to Discord via proxy
+-- Debug prints help find why it's not sending
 
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
--- Proxied webhook URL (required for live games - direct discord.com blocked)
+-- Proxy webhook URL (required - direct discord.com blocked in live games)
 local WEBHOOK_URL = "https://webhook.lewisakura.moe/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
-local THRESHOLD = 50   -- For testing; change to 200+ later
-local DEBUG = true     -- Set to false when done testing
+local THRESHOLD = 50          -- Change to 200+ when ready
+local DEBUG = true            -- Set false later to quiet console
+local COOLDOWN = 5            -- seconds between sends (prevent spam)
 
--- Embed style config (inspired by clean notifier embeds)
-local EMBED_TITLE = "🚨 High Value Fish Spawn Alert!"
-local EMBED_COLOR = 0xFF5555  -- Bright red/orange for attention
-local FOOTER_TEXT = "AutoFish Scanner • " .. game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
+-- Embed style
+local EMBED_TITLE = "🚨 HIGH VALUE FISH SPAWNED!"
+local EMBED_COLOR = 0xFF4444  -- Bright red alert
+local FOOTER = "AutoFish Scanner • " .. game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
 
--- References to your PPPart_PP
+-- Get the part
 local folder1 = workspace:WaitForChild("FrameWork_WorkSpace", 10)
     :WaitForChild("FishPPPart", 5)
     :WaitForChild("Folder1", 5)
@@ -24,58 +26,70 @@ local displayObj = folder1:GetChildren()[14]
 local ppPart = displayObj and displayObj:FindFirstChild("PPPart_PP")
 
 if not ppPart then
-    warn("[FishNotifier] PPPart_PP not found at Folder1:GetChildren()[14]")
+    warn("[FishNotifier] ERROR: PPPart_PP not found!")
     return
 end
 
-print("[FishNotifier] Monitoring started on " .. ppPart:GetFullName() .. " | Threshold: " .. THRESHOLD .. "%")
+print("[FishNotifier] Started monitoring: " .. ppPart:GetFullName() .. " | Threshold ≥ " .. THRESHOLD .. "%")
 
 local lastText = ""
 local lastValue = 0
+local lastSendTime = 0
+
+local function getText()
+    return ppPart.ObjectText
+        or (ppPart.Text)  -- fallback if it's a Text property
+        or (ppPart:FindFirstChildWhichIsA("TextLabel") and (ppPart:FindFirstChildWhichIsA("TextLabel").ObjectText or ppPart:FindFirstChildWhichIsA("TextLabel").Text))
+        or (ppPart:FindFirstChild("SurfaceGui") and ppPart.SurfaceGui:FindFirstChildWhichIsA("TextLabel") and (ppPart.SurfaceGui:FindFirstChildWhichIsA("TextLabel").ObjectText or ppPart.SurfaceGui:FindFirstChildWhichIsA("TextLabel").Text))
+end
 
 local function extractPercentageAndFish(rawText)
     if typeof(rawText) ~= "string" or rawText == "" then
-        if DEBUG then print("[DEBUG] Empty or invalid ObjectText") end
         return nil, nil
     end
 
-    if rawText == lastText then return lastValue, nil end
+    if rawText == lastText then
+        return lastValue, nil
+    end
 
-    if DEBUG then print("[DEBUG] New text: \"" .. rawText .. "\"") end
+    if DEBUG then
+        print("[DEBUG] Detected new text: \"" .. rawText .. "\"")
+    end
 
     lastText = rawText
-    local text = rawText:lower():gsub(" ", "")
-
-    -- Percentage patterns
-    local patterns = {
-        "(%d+%.?%d*)%%",
-        "(%d+%.?%d*) ?percent",
-        "(%d+)%%?",
-        "over (%d+)"
-    }
+    local lower = rawText:lower():gsub(" ", "")
 
     local value
+    local patterns = {"(%d+%.?%d*)%%", "(%d+%.?%d*) ?percent", "(%d+)%%?", "over (%d+)"}
     for _, pat in ipairs(patterns) do
-        local numStr = text:match(pat)
-        if numStr then
-            value = tonumber(numStr)
+        local match = lower:match(pat)
+        if match then
+            value = tonumber(match)
             if value then break end
         end
     end
 
-    if not value or value < THRESHOLD then return nil, nil end
-    if value == lastValue then return nil, nil end
+    if not value or value < THRESHOLD then
+        if DEBUG then print("[DEBUG] Skip: value = " .. (value or "none") .. " < " .. THRESHOLD) end
+        return nil, nil
+    end
 
-    -- Fish name extraction (adjust patterns if your text format is known)
-    local fishName = text:match("([%w%s]+)%d+%%") 
-                  or text:match("([%w%s]+)at%d+%%") 
-                  or text:match("([%w%s]+)%d+%%") 
-                  or rawText:match("([%w%s]+)%d+")  
-                  or "Mystery Fish"
+    if value == lastValue then
+        if DEBUG then print("[DEBUG] Skip: same value as before (" .. value .. "%)") end
+        return nil, nil
+    end
+
+    local fishName = lower:match("([%w%s]+)%d+%%")
+        or lower:match("([%w%s]+)at%d+%%")
+        or lower:match("([%w%s]+)%d+%%")
+        or rawText:match("([%w%s]+)%d+")
+        or "Unknown Fish"
 
     fishName = fishName:gsub("^%s*(.-)%s*$", "%1"):gsub("%s+", " ")
 
-    if DEBUG then print("[DEBUG] Parsed: " .. fishName .. " @ " .. value .. "%") end
+    if DEBUG then
+        print("[DEBUG] Parsed → Fish: " .. fishName .. " | Value: " .. value .. "%")
+    end
 
     lastValue = value
     return value, fishName
@@ -83,55 +97,46 @@ end
 
 local function sendWebhook(value, fishName)
     fishName = fishName or "Unknown Fish"
-    value = value or 0
 
-    local description = "A high-percentage fish has spawned! Get in-game fast!"
+    local now = os.time()
+    if now - lastSendTime < COOLDOWN then
+        if DEBUG then print("[DEBUG] Cooldown active - skip send") end
+        return
+    end
 
-    if DEBUG then print("[DEBUG] Building embed for " .. fishName .. " (" .. value .. "%)") end
+    lastSendTime = now
 
     local data = {
         embeds = {{
             title = EMBED_TITLE,
-            description = description,
+            description = "A powerful fish has appeared in the ocean! Hurry before it's gone.",
             color = EMBED_COLOR,
             fields = {
-                {
-                    name = "Fish",
-                    value = "**" .. fishName .. "**",
-                    inline = true
-                },
-                {
-                    name = "Percentage",
-                    value = "**" .. tostring(value) .. "%**",
-                    inline = true
-                }
+                { name = "Fish", value = "**" .. fishName .. "**", inline = true },
+                { name = "Percentage", value = "**" .. tostring(value) .. "%**", inline = true }
             },
             timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
-            footer = {
-                text = FOOTER_TEXT
-            }
+            footer = { text = FOOTER }
         }}
     }
 
-    local json = HttpService:JSONEncode(data)
+    if DEBUG then
+        print("[DEBUG] Preparing webhook for: " .. fishName .. " (" .. value .. "%)")
+    end
 
     local success, err = pcall(function()
-        HttpService:PostAsync(WEBHOOK_URL, json, Enum.HttpContentType.ApplicationJson)
+        HttpService:PostAsync(WEBHOOK_URL, HttpService:JSONEncode(data), Enum.HttpContentType.ApplicationJson)
     end)
 
     if success then
-        print("[FishNotifier] SUCCESS: Sent notification → " .. fishName .. " (" .. value .. "%)")
+        print("[FishNotifier] Webhook SENT successfully → " .. fishName .. " (" .. value .. "%)")
     else
-        warn("[FishNotifier] Webhook failed: " .. tostring(err))
+        warn("[FishNotifier] Webhook FAILED: " .. tostring(err))
     end
 end
 
--- Main background loop
 RunService.Heartbeat:Connect(function()
-    local text = ppPart.ObjectText
-        or (ppPart:FindFirstChildWhichIsA("TextLabel") and ppPart:FindFirstChildWhichIsA("TextLabel").ObjectText)
-        or (ppPart:FindFirstChild("SurfaceGui") and ppPart.SurfaceGui:FindFirstChildWhichIsA("TextLabel") and ppPart.SurfaceGui:FindFirstChildWhichIsA("TextLabel").ObjectText)
-
+    local text = getText()
     if not text or text == "" then return end
 
     local value, fishName = extractPercentageAndFish(text)
