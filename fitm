@@ -184,10 +184,6 @@ local function isNearSpecificShelf(afxPart, fishName)
         end
     end
     
-    if DEBUG and nearestDistance < 20 then
-        print("[PROXIMITY] " .. fishName .. " is " .. string.format("%.2f", nearestDistance) .. " studs away (too far)")
-    end
-    
     return false, nearestDistance
 end
 
@@ -271,55 +267,58 @@ local function extractPercentageForFish(fishName)
     return nil
 end
 
--- Webhook sender
-local function SendWebhook(payload)
+-- SIMPLIFIED Webhook sender - no grouping, send immediately
+local function SendWebhook(fishName, percent, distance)
     local headers = {["Content-Type"] = "application/json"}
+    local message = "**" .. fishName .. "** - **" .. percent .. "%** (within " .. string.format("%.1f", distance) .. " studs of shelf)"
+    local payload = {content = message}
     local body = HttpService:JSONEncode(payload)
     
+    if DEBUG then print("[WEBHOOK] Attempting to send: " .. message) end
+    
+    -- Try using http service directly
     local success, response = pcall(function()
-        return request({
-            Url = WEBHOOK_URL,
-            Method = "POST",
-            Headers = headers,
-            Body = body
-        })
+        return HttpService:PostAsync(WEBHOOK_URL, body, Enum.HttpContentType.ApplicationJson)
     end)
     
     if success then
-        print("[WEBHOOK] Sent! Status: " .. (response.StatusCode or "no code"))
+        print("[WEBHOOK] ✓ Sent successfully: " .. fishName .. " @ " .. percent .. "%")
     else
-        warn("[WEBHOOK] Failed: " .. tostring(response))
+        warn("[WEBHOOK] ✗ Failed: " .. tostring(response))
+        
+        -- Try alternative method with request if available
+        if request then
+            if DEBUG then print("[WEBHOOK] Trying request method...") end
+            local success2, response2 = pcall(function()
+                return request({
+                    Url = WEBHOOK_URL,
+                    Method = "POST",
+                    Headers = headers,
+                    Body = body
+                })
+            end)
+            
+            if success2 then
+                print("[WEBHOOK] ✓ Sent via request method")
+            else
+                warn("[WEBHOOK] ✗ Request method also failed: " .. tostring(response2))
+            end
+        end
     end
 end
 
--- Grouped webhook
-local lastSend = 0
-local detectedFish = {}
-
-local function sendGrouped()
-    local now = tick()
-    if now - lastSend < 30 then return end
-    lastSend = now
-    
-    if #detectedFish == 0 then return end
-    
-    local lines = {}
-    for fishName, data in pairs(detectedFish) do
-        table.insert(lines, "• **" .. fishName .. "** - **" .. data.percent .. "%** (within " .. string.format("%.1f", data.distance) .. " studs)")
-    end
-    
-    local message = "**Fish Near Shelves (" .. #lines .. " types, within " .. SHELF_RADIUS .. " studs):**\n" .. table.concat(lines, "\n")
-    
-    SendWebhook({content = message})
-    detectedFish = {}  -- Clear after sending
-end
+-- Track last sent times per fish type to avoid spam
+local lastSentTimes = {}
+local COOLDOWN = 300 -- 5 minutes between notifications for same fish
 
 -- Main check function
 local function checkSpecificFish()
-    if DEBUG then print("\n[CHECK START] Checking specific fish locations...") end
+    if DEBUG then print("\n" .. string.rep("=", 50)) end
+    if DEBUG then print("[CHECK START] Checking specific fish locations...") end
     
     local checkedCount = 0
     local nearShelfCount = 0
+    local sentCount = 0
     
     for _, fishData in ipairs(fishToCheck) do
         local fishModel = fishData.path
@@ -342,8 +341,8 @@ local function checkSpecificFish()
         -- Check proximity to specific shelf
         local isNear, distance = isNearSpecificShelf(afxPart, fishName)
         if not isNear then
-            if DEBUG and distance < 15 then
-                print("[FAR] " .. fishName .. ": " .. string.format("%.2f", distance) .. " studs")
+            if DEBUG and distance < 10 then
+                print("[FAR] " .. fishName .. ": " .. string.format("%.2f", distance) .. " studs (needs ≤ " .. SHELF_RADIUS .. ")")
             end
             continue
         end
@@ -353,31 +352,33 @@ local function checkSpecificFish()
         -- Get percentage
         local percent = extractPercentageForFish(fishName)
         if not percent then
-            if DEBUG then print("[NO-PERCENT] " .. fishName .. " has no data") end
+            if DEBUG then print("[NO-PERCENT] " .. fishName .. " has no data or < " .. THRESHOLD .. "%") end
             continue
         end
         
-        -- Add to detected list (keep best/closest one)
-        if not detectedFish[fishName] or distance < detectedFish[fishName].distance then
-            detectedFish[fishName] = {
-                percent = percent,
-                distance = distance,
-                model = fishModel.Name
-            }
-            
-            if DEBUG then
-                print("[NEAR] ✓ " .. fishName .. " @ " .. percent .. "% (" .. string.format("%.2f", distance) .. " studs)")
-            end
+        -- ALL CHECKS PASSED: Fish is near shelf and has high percentage
+        if DEBUG then
+            print("[DETECT] ✓ " .. fishName .. " @ " .. percent .. "% (" .. string.format("%.2f", distance) .. " studs)")
         end
+        
+        -- Check cooldown before sending
+        local now = tick()
+        local lastSent = lastSentTimes[fishName] or 0
+        if now - lastSent < COOLDOWN then
+            if DEBUG then print("[COOLDOWN] " .. fishName .. " notification on cooldown") end
+            continue
+        end
+        
+        -- Send webhook immediately
+        SendWebhook(fishName, percent, distance)
+        lastSentTimes[fishName] = now
+        sentCount = sentCount + 1
     end
     
     if DEBUG then
         print("[CHECK END] Checked " .. checkedCount .. " fish, " .. nearShelfCount .. " near shelves")
-        print("Found " .. #detectedFish .. " fish types ≥ " .. THRESHOLD .. "% near their specific shelves")
-    end
-    
-    if next(detectedFish) then
-        sendGrouped()
+        print("Sent " .. sentCount .. " notifications")
+        print(string.rep("=", 50))
     end
 end
 
@@ -397,11 +398,31 @@ print("  • Checking: " .. #fishToCheck .. " specific fish models")
 print("  • Against: " .. #shelfLocations .. " specific shelf locations")
 print("  • Radius: " .. SHELF_RADIUS .. " studs")
 print("  • Threshold: ≥ " .. THRESHOLD .. "%")
+print("  • Cooldown: " .. COOLDOWN .. " seconds per fish type")
 print("\nFish types being monitored:")
 for fishName, _ in pairs(shelfLocations) do
     print("  • " .. fishName)
 end
 
+-- Test the webhook immediately
+if DEBUG then
+    print("\n[TEST] Testing webhook connection...")
+    wait(2)
+    
+    -- Send a test message
+    local testSuccess = pcall(function()
+        local payload = {content = "**[TEST]** FishScanner is now active! Monitoring " .. #fishToCheck .. " fish models."}
+        local body = HttpService:JSONEncode(payload)
+        HttpService:PostAsync(WEBHOOK_URL, body, Enum.HttpContentType.ApplicationJson)
+    end)
+    
+    if testSuccess then
+        print("[TEST] Webhook test successful!")
+    else
+        warn("[TEST] Webhook test failed - check URL and permissions")
+    end
+end
+
 -- Initial check
-wait(2)
+wait(5)
 checkSpecificFish()
