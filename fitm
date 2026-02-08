@@ -1,5 +1,5 @@
--- AutoFish Notifier - ONLY your 17 exact shelf positions
--- Real name from ObjectText, ≥50%, grouped webhook
+-- AutoFish Notifier - Only desired fish types + 3-stud radius check to shelf
+-- Scans FishPPPart.Folder1/2/3, checks proximity to shelves in "\232\180\167\230\158\182"
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
@@ -9,79 +9,97 @@ local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfj
 local THRESHOLD = 50
 local SCAN_INTERVAL = 90
 local DEBUG = true
+local SHELF_RADIUS = 3  -- studs
 
--- Fish data folders (FishPPPart)
+-- Shelf locations (hangers)
+local shelfParent = workspace:WaitForChild("FrameWork_WorkSpace", 10)
+    :WaitForChild("\232\180\167\230\158\182", 10)
+
+-- Fish data location
 local dataParent = workspace:WaitForChild("FrameWork_WorkSpace", 10)
     :WaitForChild("FishPPPart", 10)
 
-local folders = {
-    dataParent:WaitForChild("Folder1", 10),
-    dataParent:WaitForChild("Folder2", 10),
-    dataParent:WaitForChild("Folder3", 10)
+-- Your desired fish types (case-insensitive partial match)
+local wantedFishTypes = {
+    "sea dweller",
+    "scp3000", "scp-300", "scp 300", "scp300",
+    "plesiosaurus",
+    "hammerhead shark", "hammerhead",
+    "bloop",
+    "el gran maja", "gran maja",
+    "julia beast",
+    "ningen",
+    "megalodon",
+    "zombie fish",
+    "sea eater",
+    "bone shark", "boneshark",
+    "shark girl",
+    "shark boy",
+    "king squid",
+    "sea reaper"
 }
 
-print("[FishScanner] Data folders loaded")
-
--- Your 17 exact positions (folder 1-based + index or name + label)
-local positions = {
-    {folder = 1, index = 8,   name = nil, label = "Gran Maja"},
-    {folder = 1, index = nil, name = "\229\177\149\229\143\176", label = "Hammerhead"},
-    {folder = 1, index = 14,  name = nil, label = "Sea Dweller"},
-    {folder = 1, index = 12,  name = nil, label = "Zombie Fish"},
-    {folder = 1, index = 10,  name = nil, label = "King Squid"},
-    {folder = 1, index = 15,  name = nil, label = "Sea Reaper"},
-    {folder = 1, index = 7,   name = nil, label = "BLOOP"},
-    {folder = 1, index = 6,   name = nil, label = "Julia Beast"},
-    {folder = 1, index = 5,   name = nil, label = "Ningen"},
-    {folder = 1, index = 3,   name = nil, label = "Plesiosaurus"},
-    {folder = 1, index = nil, name = "\229\177\149\229\143\1761", label = "SCP3000"},
-    {folder = 2, index = 6,   name = nil, label = "Megalodon"},
-    {folder = 2, index = nil, name = "\230\158\182\229\173\144", label = "Julia Beast"},
-    {folder = 3, index = 22,  name = nil, label = "Shark Girl"},
-    {folder = 3, index = 21,  name = nil, label = "Shark Boy"},
-    {folder = 3, index = 19,  name = nil, label = "Bone Shark"},
-    {folder = 3, index = 18,  name = nil, label = "Sea Eater"},
-}
-
-print("[FishScanner] Loaded " .. #positions .. " exact positions")
-
--- Get name and action text from PPPart_PP
-local function getPromptInfo(part)
-    if not part then
-        if DEBUG then print("[SKIP] Part is nil") end
-        return nil, nil
+local function isWantedFish(name)
+    if not name then return false end
+    local lower = name:lower()
+    for _, w in ipairs(wantedFishTypes) do
+        if lower:find(w, 1, true) then return true end
     end
+    return false
+end
+
+-- Get all shelf parts (for proximity check)
+local shelfParts = {}
+for _, folderName in ipairs({"Folder1", "Folder2", "Folder3"}) do
+    local folder = shelfParent:FindFirstChild(folderName)
+    if folder then
+        for _, part in ipairs(folder:GetDescendants()) do
+            if part:IsA("BasePart") or part:IsA("Model") then
+                table.insert(shelfParts, part)
+            end
+        end
+    end
+end
+
+print("[FishScanner] Found " .. #shelfParts .. " shelf parts for proximity check")
+
+-- Get prompt info
+local function getPromptInfo(part)
+    if not part then return nil, nil end
 
     local prompt = part:FindFirstChild("PPPart_PP")
-    if not prompt then
-        if DEBUG then print("[SKIP] No PPPart_PP in " .. part:GetFullName()) end
-        return nil, nil
-    end
+    if not prompt or not prompt:IsA("ProximityPrompt") then return nil, nil end
 
-    if not prompt:IsA("ProximityPrompt") then
-        if DEBUG then print("[SKIP] Not ProximityPrompt") end
-        return nil, nil
-    end
-
-    local name = prompt.ObjectText or "Unknown"
+    local name = prompt.ObjectText or "Unknown Fish"
     local action = prompt.ActionText or ""
-
-    if DEBUG then
-        print("[PROMPT] " .. part:GetFullName())
-        print("   Name: " .. tostring(name))
-        print("   Action: " .. tostring(action))
-    end
 
     return name, action
 end
 
+-- Check if part is within 3 studs of any shelf
+local function isNearShelf(part)
+    if not part or not part:IsA("BasePart") then return false end
+    local pos = part.Position
+
+    for _, shelf in ipairs(shelfParts) do
+        if shelf:IsA("BasePart") then
+            if (pos - shelf.Position).Magnitude <= SHELF_RADIUS then
+                return true
+            end
+        elseif shelf:IsA("Model") and shelf.PrimaryPart then
+            if (pos - shelf.PrimaryPart.Position).Magnitude <= SHELF_RADIUS then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 -- Extract percentage
 local function extractPercentage(name, action)
-    local text = tostring(name or "") .. " " .. tostring(action or "")
-    if text == "" then
-        if DEBUG then print("[PARSE] No text") end
-        return nil
-    end
+    local text = (name or "") .. " " .. (action or "")
+    if text == "" then return nil end
 
     local clean = text:lower():gsub("%s+", "")
     local patterns = {
@@ -95,18 +113,14 @@ local function extractPercentage(name, action)
         local numStr = clean:match(pat)
         if numStr then
             local v = tonumber(numStr)
-            if v and v >= THRESHOLD then
-                if DEBUG then print("[PARSE] Found " .. v .. "%") end
-                return v
-            end
+            if v and v >= THRESHOLD then return v end
         end
     end
 
-    if DEBUG then print("[PARSE] No ≥" .. THRESHOLD .. "%") end
     return nil
 end
 
--- Your webhook sender
+-- Webhook sender (your original)
 local function SendWebhook(payload)
     local headers = {["Content-Type"] = "application/json"}
     local body = HttpService:JSONEncode(payload)
@@ -127,7 +141,7 @@ local function SendWebhook(payload)
     end
 end
 
--- Send grouped webhook
+-- Grouped webhook
 local lastSend = 0
 
 local function sendGrouped(detected)
@@ -139,7 +153,7 @@ local function sendGrouped(detected)
 
     local lines = {}
     for i, f in ipairs(detected) do
-        table.insert(lines, i .. ". **" .. tostring(f.name or "Unknown") .. "** - **" .. tostring(f.percent or 0) .. "%**")
+        table.insert(lines, i .. ". **" .. f.name .. "** - **" .. f.percent .. "%**")
     end
 
     local message = "**High % Fish Detected (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
@@ -147,7 +161,7 @@ local function sendGrouped(detected)
     SendWebhook({content = message})
 end
 
--- Scan loop
+-- Scan loop - only scan FishPPPart folders
 local lastScan = 0
 
 RunService.Heartbeat:Connect(function()
@@ -155,45 +169,30 @@ RunService.Heartbeat:Connect(function()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
 
-    if DEBUG then print("[SCAN START] Checking your 17 positions...") end
+    if DEBUG then print("[SCAN START] Scanning FishPPPart folders...") end
 
     local detected = {}
 
-    for _, entry in ipairs(positions) do
-        local folder = folders[entry.folder]
+    for folderIdx, folder in ipairs(folders) do
         if not folder then
-            if DEBUG then print("[SKIP] Folder" .. entry.folder .. " missing for " .. (entry.label or "no label")) end
+            if DEBUG then print("[SKIP] Folder" .. folderIdx .. " missing") end
             continue
         end
 
-        local part = nil
-        if entry.index then
-            local children = folder:GetChildren()
-            if not children then
-                if DEBUG then print("[NIL] GetChildren() nil in Folder" .. entry.folder) end
-                continue
-            end
-            if #children < entry.index + 1 then
-                if DEBUG then print("[SKIP] Index " .. entry.index .. " out of bounds in Folder" .. entry.folder .. " (only " .. #children .. ")") end
-                continue
-            end
-            part = children[entry.index + 1]
-        elseif entry.name then
-            part = folder:FindFirstChild(entry.name)
-            if not part then
-                if DEBUG then print("[SKIP] Named part '" .. entry.name .. "' not found") end
-            end
-        end
-
-        if not part then continue end
-
-        local name, action = getPromptInfo(part)
-        if name then
-            local percent = extractPercentage(name, action)
-            if percent then
-                table.insert(detected, {name = name, percent = percent})
-                if DEBUG then
-                    print("[DETECT] " .. tostring(name) .. " @ " .. percent .. "% - " .. tostring(entry.label or "no label"))
+        for _, child in ipairs(folder:GetChildren()) do
+            local name, action = getPromptInfo(child)
+            if name and isWantedFish(name) then
+                -- Check if this fish is near a shelf
+                if isNearShelf(child) then
+                    local percent = extractPercentage(name, action)
+                    if percent then
+                        table.insert(detected, {name = name, percent = percent})
+                        if DEBUG then
+                            print("[DETECT] " .. name .. " @ " .. percent .. "% (near shelf)")
+                        end
+                    end
+                else
+                    if DEBUG then print("[SKIP] " .. name .. " not near any shelf") end
                 end
             end
         end
@@ -201,7 +200,7 @@ RunService.Heartbeat:Connect(function()
 
     sendGrouped(detected)
 
-    if DEBUG then print("[SCAN END] Found " .. #detected .. " fish ≥ " .. THRESHOLD .. "%") end
+    if DEBUG then print("[SCAN END] Found " .. #detected .. " valid fish ≥ " .. THRESHOLD .. "% on shelves") end
 end)
 
-print("[FishScanner] Active - only your 17 positions - ≥ " .. THRESHOLD .. "%")
+print("[FishScanner] Active - only desired fish types near shelves - ≥ " .. THRESHOLD .. "%")
