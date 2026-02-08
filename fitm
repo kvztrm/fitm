@@ -1,109 +1,178 @@
--- FINAL EXPLOIT NOTIFIER - WORKS 100%
--- Scans ONLY your listed fish, reads ProximityPrompt.ActionText
+-- AutoFish Exploit Notifier - FIXED for ProximityPrompt
+-- Scans ONLY your listed fish positions
+-- Reads .ObjectText and .ActionText from PPPart_PP ProximityPrompt
 
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
 local WEBHOOK_URL = "https://webhook.lewisakura.moe/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
-local THRESHOLD = 200   -- change to 50 for testing
-local COOLDOWN = 10
+local THRESHOLD = 50       -- set higher when ready
+local DEBUG = true         -- turn off later
+local COOLDOWN = 6         -- seconds between sends
 
-local fpp = workspace:WaitForChild("FrameWork_WorkSpace"):WaitForChild("FishPPPart")
+-- Folders
+local fpp = workspace:WaitForChild("FrameWork_WorkSpace", 10)
+    :WaitForChild("FishPPPart", 5)
 
-local folder1 = fpp:WaitForChild("Folder1")
-local folder2 = fpp:WaitForChild("Folder2")
-local folder3 = fpp:WaitForChild("Folder3")
+local folder1 = fpp:WaitForChild("Folder1", 5)
+local folder2 = fpp:WaitForChild("Folder2", 5)
+local folder3 = fpp:WaitForChild("Folder3", 5)
 
--- ALL YOUR FISH (exact indices you gave)
-local fish = {
-    {folder1:GetChildren()[24], "SCP-300 Rightest"},
-    {folder1:GetChildren()[44], "SCP-300 Middle"},
-    {folder1:GetChildren()[25], "SCP-300 Leftest"},
-    {folder1:GetChildren()[48], "Plesiosaurus Rightest"},
-    {folder1:GetChildren()[27], "Plesiosaurus Middle"},
-    {folder1:GetChildren()[26], "Plesiosaurus Leftest"},
-    {folder1:GetChildren()[45], "Hammerhead Leftest"},
-    {folder1:GetChildren()[46], "Hammerhead Middle"},
-    {folder1:GetChildren()[47], "Hammerhead Rightest"},
-    {folder1:GetChildren()[43], "Sea Dweller Rightest"},
-    {folder1:GetChildren()[42], "Sea Dweller Middle"},
-    {folder1:GetChildren()[19], "Sea Dweller Leftest"},
-    {folder1:GetChildren()[40], "Zombie Fish Middle"},
-    {folder1:GetChildren()[39], "Zombie Fish Leftest"},
-    {folder1:GetChildren()[9],  "Zombie Fish Rightest"},
-    {folder1:GetChildren()[38], "King Squid Middle"},
-    {folder1:GetChildren()[37], "King Squid Leftest"},
-    {folder1:GetChildren()[8],  "King Squid Rightest"},
-    {folder1:GetChildren()[36], "Gran Maja Rightest"},
-    {folder1:GetChildren()[35], "Gran Maja Middle"},
-    {folder1:GetChildren()[34], "Gran Maja Leftest"},
-    {folder1:GetChildren()[33], "Bloop Rightest"},
-    {folder1:GetChildren()[32], "Bloop Leftest"},
-    {folder1:GetChildren()[6],  "Bloop Middle"},
-    {folder1:GetChildren()[31], "Julia Beast (Ningen) Middle"},
-    {folder1:GetChildren()[30], "Julia Beast (Ningen) Leftest"},
-    {folder1:GetChildren()[5],  "Julia Beast (Ningen) Rightest"},
-    {folder1:GetChildren()[29], "Ningen Rightest"},
-    {folder1:GetChildren()[28], "Ningen Middle"},
-    {folder1:GetChildren()[4],  "Ningen Leftest"},
-    {folder1:GetChildren()[21], "Sea Reaper Rightest"},
-    {folder1:GetChildren()[20], "Sea Reaper Middle"},
-    {folder1:GetChildren()[11], "Sea Reaper Leftest"},
-    
-    {folder2:GetChildren()[36], "Julia Beast (Middle) Rightest"},
-    {folder2:GetChildren()[26], "Julia Beast (Middle) Middle"},
-    {folder2:GetChildren()[35], "Julia Beast (Middle) Leftest"},
-    {folder2:GetChildren()[30], "Megalodon Leftest"},
-    {folder2:GetChildren()[8],  "Megalodon Rightest"},
-    {folder2:GetChildren()[7],  "Megalodon Middle"},
-    
-    {folder3:GetChildren()[69], "Sea Eater Rightest"},
-    {folder3:GetChildren()[68], "Sea Eater Middle"},
-    {folder3:GetChildren()[67], "Sea Eater Leftest"},
-    {folder3:GetChildren()[66], "Boneshark Middle"},
-    {folder3:GetChildren()[65], "Boneshark Leftest"},
-    {folder3:GetChildren()[61], "Boneshark Rightest"},
-    {folder3:GetChildren()[60], "Shark Girl Rightest"},
-    {folder3:GetChildren()[59], "Shark Girl Middle"},
-    {folder3:GetChildren()[58], "Shark Girl Leftest"},
-    {folder3:GetChildren()[57], "Shark Boy Leftest"},
-    {folder3:GetChildren()[56], "Shark Boy Middle"},
-    {folder3:GetChildren()[55], "Shark Boy Rightest"},
+-- Your exact fish positions (only these)
+local fishRefs = {
+    -- Folder1
+    {part = folder1 and folder1:GetChildren()[24], name = "SCP-300 Rightest"},
+    {part = folder1 and folder1:GetChildren()[44], name = "SCP-300 Middle"},
+    {part = folder1 and folder1:GetChildren()[25], name = "SCP-300 Leftest"},
+    {part = folder1 and folder1:GetChildren()[48], name = "Plesiosaurus Rightest"},
+    {part = folder1 and folder1:GetChildren()[27], name = "Plesiosaurus Middle"},
+    {part = folder1 and folder1:GetChildren()[26], name = "Plesiosaurus Leftest"},
+    {part = folder1 and folder1:GetChildren()[45], name = "Hammerhead Leftest"},
+    {part = folder1 and folder1:GetChildren()[46], name = "Hammerhead Middle"},
+    {part = folder1 and folder1:GetChildren()[47], name = "Hammerhead Rightest"},
+    {part = folder1 and folder1:GetChildren()[43], name = "Sea Dweller Rightest"},
+    {part = folder1 and folder1:GetChildren()[42], name = "Sea Dweller Middle"},
+    {part = folder1 and folder1:GetChildren()[19], name = "Sea Dweller Leftest"},
+    {part = folder1 and folder1:GetChildren()[40], name = "Zombie Fish Middle"},
+    {part = folder1 and folder1:GetChildren()[39], name = "Zombie Fish Leftest"},
+    {part = folder1 and folder1:GetChildren()[9],  name = "Zombie Fish Rightest"},
+    {part = folder1 and folder1:GetChildren()[38], name = "King Squid Middle"},
+    {part = folder1 and folder1:GetChildren()[37], name = "King Squid Leftest"},
+    {part = folder1 and folder1:GetChildren()[8],  name = "King Squid Rightest"},
+    {part = folder1 and folder1:GetChildren()[36], name = "Gran Maja Rightest"},
+    {part = folder1 and folder1:GetChildren()[35], name = "Gran Maja Middle"},
+    {part = folder1 and folder1:GetChildren()[34], name = "Gran Maja Leftest"},
+    {part = folder1 and folder1:GetChildren()[33], name = "Bloop Rightest"},
+    {part = folder1 and folder1:GetChildren()[32], name = "Bloop Leftest"},
+    {part = folder1 and folder1:GetChildren()[6],  name = "Bloop Middle"},
+    {part = folder1 and folder1:GetChildren()[31], name = "Julia Beast (ningen) Middle"},
+    {part = folder1 and folder1:GetChildren()[30], name = "Julia Beast (ningen) Leftest"},
+    {part = folder1 and folder1:GetChildren()[5],  name = "Julia Beast (ningen) Rightest"},
+    {part = folder1 and folder1:GetChildren()[29], name = "Ningen Rightest"},
+    {part = folder1 and folder1:GetChildren()[28], name = "Ningen Middle"},
+    {part = folder1 and folder1:GetChildren()[4],  name = "Ningen Leftest"},
+    {part = folder1 and folder1:GetChildren()[21], name = "Sea Reaper Rightest"},
+    {part = folder1 and folder1:GetChildren()[20], name = "Sea Reaper Middle"},
+    {part = folder1 and folder1:GetChildren()[11], name = "Sea Reaper Leftest"},
+    -- Folder2
+    {part = folder2 and folder2:GetChildren()[36], name = "Julia Beast (middle) Rightest"},
+    {part = folder2 and folder2:GetChildren()[26], name = "Julia Beast (middle) Middle"},
+    {part = folder2 and folder2:GetChildren()[35], name = "Julia Beast (middle) Leftest"},
+    {part = folder2 and folder2:GetChildren()[30], name = "Megalodon Leftest"},
+    {part = folder2 and folder2:GetChildren()[8],  name = "Megalodon Rightest"},
+    {part = folder2 and folder2:GetChildren()[7],  name = "Megalodon Middle"},
+    -- Folder3
+    {part = folder3 and folder3:GetChildren()[69], name = "Sea Eater Rightest"},
+    {part = folder3 and folder3:GetChildren()[68], name = "Sea Eater Middle"},
+    {part = folder3 and folder3:GetChildren()[67], name = "Sea Eater Leftest"},
+    {part = folder3 and folder3:GetChildren()[66], name = "Boneshark Middle"},
+    {part = folder3 and folder3:GetChildren()[65], name = "Boneshark Leftest"},
+    {part = folder3 and folder3:GetChildren()[61], name = "Boneshark Rightest"},
+    {part = folder3 and folder3:GetChildren()[60], name = "Shark Girl Rightest"},
+    {part = folder3 and folder3:GetChildren()[59], name = "Shark Girl Middle"},
+    {part = folder3 and folder3:GetChildren()[58], name = "Shark Girl Leftest"},
+    {part = folder3 and folder3:GetChildren()[57], name = "Shark Boy Leftest"},
+    {part = folder3 and folder3:GetChildren()[56], name = "Shark Boy Middle"},
+    {part = folder3 and folder3:GetChildren()[55], name = "Shark Boy Rightest"},
 }
 
+print("[FishScanner] Loaded " .. #fishRefs .. " fish positions to monitor")
+
+-- Get text from ProximityPrompt
+local function getPromptText(fishPart)
+    if not fishPart then return nil end
+
+    local prompt = fishPart:FindFirstChild("PPPart_PP")
+    if not prompt or not prompt:IsA("ProximityPrompt") then
+        return nil
+    end
+
+    local objText = prompt.ObjectText or ""
+    local actText = prompt.ActionText or ""
+
+    local combined = objText .. " " .. actText
+
+    if DEBUG then
+        if combined:match("%d") then
+            print("[PROMPT] " .. fishPart.Name .. " → Obj: '" .. objText .. "' | Act: '" .. actText .. "'")
+        end
+    end
+
+    return combined
+end
+
+-- Extract percentage
+local function extractPercentage(text)
+    if not text or text == "" then return nil end
+
+    local clean = text:lower():gsub("%s+", "")
+    local patterns = {
+        "(%d+%.?%d*)%%",
+        "(%d+)%%",
+        "(%d+%.?%d*)percent",
+        "(%d+)"
+    }
+
+    for _, pat in ipairs(patterns) do
+        local numStr = clean:match(pat)
+        if numStr then
+            local v = tonumber(numStr)
+            if v and v >= THRESHOLD then
+                return v
+            end
+        end
+    end
+
+    return nil
+end
+
+-- Webhook sender
 local lastSend = 0
 
+local function sendWebhook(value, fishName)
+    local now = tick()
+    if now - lastSend < COOLDOWN then return end
+    lastSend = now
+
+    local data = {
+        embeds = {{
+            title = value .. "% FISH READY",
+            description = fishName,
+            color = 0xFF0000,
+            fields = {
+                {name = "Fish", value = fishName, inline = true},
+                {name = "%", value = value .. "%", inline = true}
+            },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        }}
+    }
+
+    local success, err = pcall(function()
+        HttpService:PostAsync(WEBHOOK_URL, HttpService:JSONEncode(data), Enum.HttpContentType.ApplicationJson)
+    end)
+
+    if success then
+        print("[WEBHOOK] Sent: " .. fishName .. " (" .. value .. "%)")
+    else
+        warn("[WEBHOOK FAIL] " .. tostring(err))
+    end
+end
+
+-- Scan loop
 RunService.Heartbeat:Connect(function()
-    for _, v in ipairs(fish) do
-        local part = v[1]
-        local name = v[2]
-        if part and part:FindFirstChild("PPPart_PP") then
-            local prompt = part.PPPart_PP
-            if prompt:IsA("ProximityPrompt") and prompt.ActionText then
-                local text = prompt.ActionText
-                local percent = text:match("(%d+)%%")
-                if percent then
-                    local num = tonumber(percent)
-                    if num and num >= THRESHOLD then
-                        local now = tick()
-                        if now - lastSend >= COOLDOWN then
-                            lastSend = now
-                            HttpService:PostAsync(WEBHOOK_URL, HttpService:JSONEncode({
-                                embeds = {{
-                                    title = num .. "% FISH",
-                                    description = "**" .. name .. "**\n" .. text,
-                                    color = 0xFF0000,
-                                    timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
-                                }}
-                            }), Enum.HttpContentType.ApplicationJson)
-                            print("[SENT] " .. name .. " - " .. num .. "%")
-                        end
-                    end
-                end
+    for _, entry in ipairs(fishRefs) do
+        local part = entry.part
+        if not part then continue end
+
+        local text = getPromptText(part)
+        if text then
+            local value = extractPercentage(text)
+            if value then
+                sendWebhook(value, entry.name)
             end
         end
     end
 end)
 
-print("FISH NOTIFIER LOADED - WAITING FOR " .. THRESHOLD .. "%+")
+print("[FishScanner] Active - only your listed fish - checking PPPart_PP ProximityPrompt")
