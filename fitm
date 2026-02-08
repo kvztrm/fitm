@@ -1,5 +1,5 @@
--- AutoFish Notifier - Full index scan (0-150) in Folder1/2/3
--- Only reports the exact fish types you listed, grouped webhook
+-- AutoFish Notifier - Full index scan (0-150), only real fish names, ≥50%
+-- Groups only matching fish into one webhook
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
@@ -21,14 +21,14 @@ local folder3 = fpp:WaitForChild("Folder3", 5)
 
 local folders = {folder1, folder2, folder3}
 
--- Your exact fish names (case-insensitive match)
+-- Wanted fish names (case-insensitive partial match)
 local wantedFish = {
     "sea dweller",
-    "scp3000", "scp-300", "scp 300",
+    "scp3000", "scp-300", "scp 300", "scp300",
     "plesiosaurus",
-    "hammerhead shark", "hammerhead",
+    "hammerhead", "hammerhead shark",
     "bloop",
-    "el gran maja", "gran maja",
+    "gran maja", "el gran maja",
     "julia beast",
     "ningen",
     "megalodon",
@@ -41,7 +41,7 @@ local wantedFish = {
     "sea reaper"
 }
 
--- Check if name matches any wanted fish (case-insensitive)
+-- Check if name matches any wanted fish
 local function isWantedFish(name)
     if not name then return false end
     local lower = name:lower()
@@ -62,12 +62,13 @@ local function getPromptText(part)
 
     local obj = prompt.ObjectText or ""
     local act = prompt.ActionText or ""
-    return obj .. " " .. act
+    return obj, act
 end
 
 -- Extract percentage
-local function extractPercentage(text)
-    if not text or text == "" then return nil end
+local function extractPercentage(obj, act)
+    local text = (obj or "") .. " " .. (act or "")
+    if text == "" then return nil end
 
     local clean = text:lower():gsub("%s+", "")
     local patterns = {
@@ -109,7 +110,7 @@ local function SendWebhook(payload)
     end
 end
 
--- Send one grouped webhook
+-- Send grouped webhook
 local lastSend = 0
 
 local function sendGrouped(detected)
@@ -129,7 +130,7 @@ local function sendGrouped(detected)
     SendWebhook({content = message})
 end
 
--- Scan loop - checks 0 to 150 in each folder
+-- Scan loop
 local lastScan = 0
 
 RunService.Heartbeat:Connect(function()
@@ -137,7 +138,7 @@ RunService.Heartbeat:Connect(function()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
 
-    if DEBUG then print("[SCAN START] Indices 0–" .. MAX_INDEX .. " in all folders") end
+    if DEBUG then print("[SCAN START] Indices 0–" .. MAX_INDEX .. " in folders") end
 
     local detected = {}
 
@@ -145,19 +146,16 @@ RunService.Heartbeat:Connect(function()
         if not folder then continue end
 
         for i = 0, MAX_INDEX do
-            local child = folder:GetChildren()[i + 1]  -- Lua is 1-based
+            local child = folder:GetChildren()[i + 1]
             if not child then continue end
 
-            local text = getPromptText(child)
-            if text then
-                local value = extractPercentage(text)
+            local name, action = getPromptInfo(child)
+            if name and isWantedFish(name) then
+                local value = extractPercentage(name, action)
                 if value then
-                    local name = child.Name or ("Idx " .. i)
-                    if isWantedFish(name) or isWantedFish(text) then
-                        table.insert(detected, {name = name, percent = value})
-                        if DEBUG then
-                            print("[HIGH] " .. name .. " @ " .. value .. "% (Folder " .. fIdx .. ", idx " .. i .. ")")
-                        end
+                    table.insert(detected, {name = name, percent = value})
+                    if DEBUG then
+                        print("[HIGH] " .. name .. " @ " .. value .. "% (Folder " .. fIdx .. ", idx " .. i .. ")")
                     end
                 end
             end
@@ -169,4 +167,4 @@ RunService.Heartbeat:Connect(function()
     if DEBUG then print("[SCAN END] Found " .. #detected .. " matching fish ≥ " .. THRESHOLD .. "%") end
 end)
 
-print("[FishScanner] Active - only specified fish types - indices 0–" .. MAX_INDEX .. " - threshold ≥ " .. THRESHOLD .. "%")
+print("[FishScanner] Active - only wanted fish - indices 0–" .. MAX_INDEX .. " - ≥ " .. THRESHOLD .. "%")
