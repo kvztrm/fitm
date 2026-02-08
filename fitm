@@ -1,12 +1,11 @@
--- AutoFish Notifier - Only desired fish types + 3-stud radius check to shelf
--- Scans FishPPPart.Folder1/2/3, checks proximity to shelves in "\232\180\167\230\158\182"
+-- AutoFish Notifier - Specific fish to specific shelf proximity check
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 local THRESHOLD = 50
 local SCAN_INTERVAL = 90
 local DEBUG = true
-local SHELF_RADIUS = 3 -- studs
+local SHELF_RADIUS = 5 -- studs
 
 -- Get FrameWork_WorkSpace
 local workspaceFrame = workspace:WaitForChild("FrameWork_WorkSpace", 10)
@@ -14,129 +13,261 @@ if not workspaceFrame then
     error("FrameWork_WorkSpace not found!")
 end
 
--- Shelf locations (hangers)
-local shelfParent = workspaceFrame:WaitForChild("\232\180\167\230\158\182", 10)
-if not shelfParent then
-    error("Shelf parent folder not found!")
-end
-
--- Fish data location
-local fishParent = workspaceFrame:WaitForChild("FishPPPart", 10)
-if not fishParent then
-    error("FishPPPart folder not found!")
-end
-
--- Your desired fish types (case-insensitive partial match)
-local wantedFishTypes = {
-    "sea dweller",
-    "scp3000", "scp-300", "scp 300", "scp300",
-    "plesiosaurus",
-    "hammerhead shark", "hammerhead",
-    "bloop",
-    "el gran maja", "gran maja",
-    "julia beast",
-    "ningen",
-    "megalodon",
-    "zombie fish",
-    "sea eater",
-    "bone shark", "boneshark",
-    "shark girl",
-    "shark boy",
-    "king squid",
-    "sea reaper"
+-- Specific fish to check with their paths
+local fishToCheck = {
+    -- Folder1 fish
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[6], name = "Hammerhead shark"},
+    {path = workspaceFrame.DisplayFish.Folder1["16Hammerhead shark"], name = "Hammerhead shark"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[5], name = "Hammerhead shark"},
+    
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[29], name = "King Squid"},
+    {path = workspaceFrame.DisplayFish.Folder1["22King Squid"], name = "King Squid"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[30], name = "King Squid"},
+    
+    {path = workspaceFrame.DisplayFish.Folder1["23Plesiosaurus"], name = "Plesiosaurus"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[9], name = "Plesiosaurus"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[8], name = "Plesiosaurus"},
+    
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[3], name = "SCP3000"},
+    {path = workspaceFrame.DisplayFish.Folder1["24SCP3000"], name = "SCP3000"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[2], name = "SCP3000"},
+    
+    {path = workspaceFrame.DisplayFish.Folder1["26julia beast"], name = "julia beast"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[18], name = "julia beast"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[17], name = "julia beast"},
+    
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[23], name = "maja"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[24], name = "maja"},
+    {path = workspaceFrame.DisplayFish.Folder1["27maja"], name = "maja"},
+    
+    {path = workspaceFrame.DisplayFish.Folder1["28Bloop"], name = "Bloop"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[21], name = "Bloop"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[20], name = "Bloop"},
+    
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[14], name = "ningen"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[15], name = "ningen"},
+    {path = workspaceFrame.DisplayFish.Folder1["29ningen"], name = "ningen"},
+    
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[41], name = "Sea Dweller"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[42], name = "Sea Dweller"},
+    {path = workspaceFrame.DisplayFish.Folder1["30Sea Dweller"], name = "Sea Dweller"},
+    
+    {path = workspaceFrame.DisplayFish.Folder1["35SeaReaper"], name = "SeaReaper"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[44], name = "SeaReaper"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[45], name = "SeaReaper"},
+    
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[35], name = "ZombieFish"},
+    {path = workspaceFrame.DisplayFish.Folder1:GetChildren()[36], name = "ZombieFish"},
+    {path = workspaceFrame.DisplayFish.Folder1["38ZombieFish"], name = "ZombieFish"},
+    
+    -- Folder2 fish
+    {path = workspaceFrame.DisplayFish.Folder2:GetChildren()[33], name = "julia beast"},
+    {path = workspaceFrame.DisplayFish.Folder2["26julia beast"], name = "julia beast"},
+    {path = workspaceFrame.DisplayFish.Folder2:GetChildren()[32], name = "julia beast"},
+    
+    {path = workspaceFrame.DisplayFish.Folder2:GetChildren()[5], name = "Megalodon"},
+    {path = workspaceFrame.DisplayFish.Folder2["37Megalodon"], name = "Megalodon"},
+    {path = workspaceFrame.DisplayFish.Folder2:GetChildren()[6], name = "Megalodon"},
+    
+    -- Folder3 fish
+    {path = workspaceFrame.DisplayFish.Folder3:GetChildren()[65], name = "SEA EATER"},
+    {path = workspaceFrame.DisplayFish.Folder3:GetChildren()[66], name = "SEA EATER"},
+    {path = workspaceFrame.DisplayFish.Folder3["31SEA EATER"], name = "SEA EATER"},
+    
+    {path = workspaceFrame.DisplayFish.Folder3["40SharkGirl"], name = "SharkGirl"},
+    {path = workspaceFrame.DisplayFish.Folder3:GetChildren()[53], name = "SharkGirl"},
+    {path = workspaceFrame.DisplayFish.Folder3:GetChildren()[54], name = "SharkGirl"},
+    
+    {path = workspaceFrame.DisplayFish.Folder3:GetChildren()[57], name = "SharkBoy"},
+    {path = workspaceFrame.DisplayFish.Folder3["39SharkBoy"], name = "SharkBoy"},
+    {path = workspaceFrame.DisplayFish.Folder3:GetChildren()[56], name = "SharkBoy"},
+    
+    {path = workspaceFrame.DisplayFish.Folder3["36BoneShark"], name = "BoneShark"},
+    {path = workspaceFrame.DisplayFish.Folder3:GetChildren()[63], name = "BoneShark"},
+    {path = workspaceFrame.DisplayFish.Folder3:GetChildren()[62], name = "BoneShark"},
 }
 
-local function isWantedFish(name)
-    if not name then return false end
-    local lower = name:lower()
-    for _, w in ipairs(wantedFishTypes) do
-        if lower:find(w:lower(), 1, true) then
-            return true
-        end
-    end
-    return false
-end
+-- Specific shelf locations for each fish type
+local shelfLocations = {
+    ["maja"] = {workspaceFrame["\232\180\167\230\158\182"].Folder1:GetChildren()[8]["\233\177\188\233\146\169"].Union},
+    ["Sea Dweller"] = {workspaceFrame["\232\180\167\230\158\182"].Folder1:GetChildren()[14]["\233\177\188\233\146\169"].Union},
+    ["ZombieFish"] = {workspaceFrame["\232\180\167\230\158\182"].Folder1:GetChildren()[12]["\233\177\188\233\146\169"].Union},
+    ["King Squid"] = {workspaceFrame["\232\180\167\230\158\182"].Folder1:GetChildren()[10]["\233\177\188\233\146\169"].Union},
+    ["SeaReaper"] = {workspaceFrame["\232\180\167\230\158\182"].Folder1:GetChildren()[15]["\233\177\188\233\146\169"].Union},
+    ["Bloop"] = {workspaceFrame["\232\180\167\230\158\182"].Folder1:GetChildren()[7]["\233\177\188\233\146\169"].Union},
+    ["julia beast"] = {
+        workspaceFrame["\232\180\167\230\158\182"].Folder1:GetChildren()[6]["\233\177\188\233\146\169"].Union,
+        workspaceFrame["\232\180\167\230\158\182"].Folder2["\230\158\182\229\173\144"]:GetChildren()[50]
+    },
+    ["ningen"] = {workspaceFrame["\232\180\167\230\158\182"].Folder1:GetChildren()[5]["\233\177\188\233\146\169"].Union},
+    ["Plesiosaurus"] = {workspaceFrame["\232\180\167\230\158\182"].Folder1:GetChildren()[3]["\233\177\188\233\146\169"].Union},
+    ["SCP3000"] = {workspaceFrame["\232\180\167\230\158\182"].Folder1["\229\177\149\229\143\1761"]["\233\177\188\233\146\169"].Union},
+    ["Hammerhead shark"] = {workspaceFrame["\232\180\167\230\158\182"].Folder1["\229\177\149\229\143\176"]["\233\177\188\233\146\169"].Union},
+    ["Megalodon"] = {workspaceFrame["\232\180\167\230\158\182"].Folder2:GetChildren()[6]:GetChildren()[41]},
+    ["SharkGirl"] = {workspaceFrame["\232\180\167\230\158\182"].Folder3:GetChildren()[22].Union},
+    ["SharkBoy"] = {workspaceFrame["\232\180\167\230\158\182"].Folder3:GetChildren()[21].Union},
+    ["BoneShark"] = {workspaceFrame["\232\180\167\230\158\182"].Folder3:GetChildren()[19].Union},
+    ["SEA EATER"] = {workspaceFrame["\232\180\167\230\158\182"].Folder3:GetChildren()[18].Union}
+}
 
--- Get all shelf parts (for proximity check)
-local shelfParts = {}
-for _, folderName in ipairs({"Folder1", "Folder2", "Folder3"}) do
-    local folder = shelfParent:FindFirstChild(folderName)
-    if folder then
-        for _, part in ipairs(folder:GetDescendants()) do
-            if part:IsA("BasePart") then
-                table.insert(shelfParts, part)
-            elseif part:IsA("Model") and part.PrimaryPart then
-                table.insert(shelfParts, part.PrimaryPart)
+-- Find AFX part in fish model
+local function findAFXPart(model)
+    if not model or not model:IsA("Model") then
+        return nil
+    end
+    
+    -- Check for AFXModel child
+    local afxModel = model:FindFirstChild("AFXModel")
+    if afxModel and afxModel:IsA("Model") then
+        -- Look for AFX part inside AFXModel
+        local afxPart = afxModel:FindFirstChild("AFX")
+        if afxPart and afxPart:IsA("BasePart") then
+            return afxPart
+        end
+        
+        -- If no AFX part, use PrimaryPart or first BasePart
+        if afxModel.PrimaryPart then
+            return afxModel.PrimaryPart
+        end
+        
+        for _, child in ipairs(afxModel:GetChildren()) do
+            if child:IsA("BasePart") then
+                return child
             end
         end
-    else
-        warn("[FishScanner] Shelf folder " .. folderName .. " not found!")
     end
-end
-print("[FishScanner] Found " .. #shelfParts .. " shelf parts for " .. SHELF_RADIUS .. " stud radius check")
-
--- Get fish folders from FishPPPart
-local fishFolders = {}
-for _, folderName in ipairs({"Folder1", "Folder2", "Folder3"}) do
-    local folder = fishParent:FindFirstChild(folderName)
-    if folder then
-        table.insert(fishFolders, folder)
-        print("[FishScanner] Found fish folder: " .. folderName)
-    else
-        warn("[FishScanner] Fish folder " .. folderName .. " not found!")
+    
+    -- Fallback: Use model's PrimaryPart or first BasePart
+    if model.PrimaryPart then
+        return model.PrimaryPart
     end
+    
+    for _, child in ipairs(model:GetChildren()) do
+        if child:IsA("BasePart") then
+            return child
+        end
+    end
+    
+    return nil
 end
 
-if #fishFolders == 0 then
-    error("No fish folders found! Check structure: FrameWork_WorkSpace.FishPPPart.Folder1/2/3")
-end
-
--- Get prompt info
-local function getPromptInfo(part)
-    if not part then return nil, nil end
-    local prompt = part:FindFirstChild("PPPart_PP")
-    if not prompt or not prompt:IsA("ProximityPrompt") then return nil, nil end
-    local name = prompt.ObjectText or "Unknown Fish"
-    local action = prompt.ActionText or ""
-    return name, action
-end
-
--- Check if part is within 3 studs of any shelf
-local function isNearShelf(part)
-    if not part or not part:IsA("BasePart") then return false end
-    local pos = part.Position
-    for _, shelf in ipairs(shelfParts) do
+-- Check if AFX part is within 5 studs of specific shelf
+local function isNearSpecificShelf(afxPart, fishName)
+    if not afxPart or not afxPart:IsA("BasePart") then 
+        return false, math.huge
+    end
+    
+    local shelfList = shelfLocations[fishName]
+    if not shelfList then
+        if DEBUG then print("[ERROR] No shelf location defined for " .. fishName) end
+        return false, math.huge
+    end
+    
+    local pos = afxPart.Position
+    local nearestDistance = math.huge
+    
+    for _, shelf in ipairs(shelfList) do
         if shelf and shelf:IsA("BasePart") then
             local distance = (pos - shelf.Position).Magnitude
+            if distance < nearestDistance then
+                nearestDistance = distance
+            end
+            
             if distance <= SHELF_RADIUS then
                 if DEBUG then
-                    print("[PROXIMITY] Fish at " .. part.Name .. " is " .. string.format("%.2f", distance) .. " studs from shelf")
+                    print("[PROXIMITY] " .. fishName .. " is " .. string.format("%.2f", distance) .. " studs from its shelf")
                 end
-                return true
+                return true, distance
+            end
+        else
+            if DEBUG then print("[ERROR] Invalid shelf for " .. fishName) end
+        end
+    end
+    
+    if DEBUG and nearestDistance < 20 then
+        print("[PROXIMITY] " .. fishName .. " is " .. string.format("%.2f", nearestDistance) .. " studs away (too far)")
+    end
+    
+    return false, nearestDistance
+end
+
+-- Extract percentage from FishPPPart data for specific fish
+local function extractPercentageForFish(fishName)
+    -- Try to find matching fish in FishPPPart
+    local fishDataParent = workspaceFrame:FindFirstChild("FishPPPart")
+    if not fishDataParent then
+        if DEBUG then print("[DATA] FishPPPart not found") end
+        return nil
+    end
+    
+    local lowerFishName = fishName:lower()
+    local searchTerms = {}
+    
+    -- Create search terms based on fish name
+    if fishName == "SEA EATER" then
+        table.insert(searchTerms, "sea eater")
+    elseif fishName == "Sea Dweller" then
+        table.insert(searchTerms, "sea dweller")
+    elseif fishName == "SeaReaper" then
+        table.insert(searchTerms, "sea reaper")
+    elseif fishName == "King Squid" then
+        table.insert(searchTerms, "king squid")
+    elseif fishName == "julia beast" then
+        table.insert(searchTerms, "julia beast")
+    elseif fishName == "Hammerhead shark" then
+        table.insert(searchTerms, "hammerhead")
+    elseif fishName == "ZombieFish" then
+        table.insert(searchTerms, "zombie fish")
+    elseif fishName == "BoneShark" then
+        table.insert(searchTerms, "bone shark")
+        table.insert(searchTerms, "boneshark")
+    else
+        table.insert(searchTerms, lowerFishName)
+    end
+    
+    -- Search all fish data folders
+    for _, folderName in ipairs({"Folder1", "Folder2", "Folder3"}) do
+        local folder = fishDataParent:FindFirstChild(folderName)
+        if folder then
+            for _, dataModel in ipairs(folder:GetChildren()) do
+                local prompt = dataModel:FindFirstChild("PPPart_PP")
+                if prompt and prompt:IsA("ProximityPrompt") then
+                    local dataName = prompt.ObjectText or ""
+                    local dataLower = dataName:lower()
+                    
+                    -- Check against all search terms
+                    for _, term in ipairs(searchTerms) do
+                        if dataLower:find(term, 1, true) then
+                            -- Extract percentage
+                            local action = prompt.ActionText or ""
+                            local text = dataName .. " " .. action
+                            local clean = text:lower():gsub("%s+", "")
+                            
+                            local patterns = {
+                                "(%d+%.?%d*)%%",
+                                "(%d+)%%",
+                                "(%d+%.?%d*) ?percent",
+                                "%%(%d+)"
+                            }
+                            
+                            for _, pat in ipairs(patterns) do
+                                local numStr = clean:match(pat)
+                                if numStr then
+                                    local v = tonumber(numStr)
+                                    if v and v >= THRESHOLD then 
+                                        if DEBUG then print("[DATA] " .. fishName .. ": " .. v .. "%") end
+                                        return v 
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
             end
         end
     end
-    return false
-end
-
--- Extract percentage
-local function extractPercentage(name, action)
-    local text = (name or "") .. " " .. (action or "")
-    if text == "" then return nil end
-    local clean = text:lower():gsub("%s+", "")
-    local patterns = {
-        "(%d+%.?%d*)%%",
-        "(%d+)%%",
-        "(%d+%.?%d*) ?percent",
-        "%%(%d+)"
-    }
-    for _, pat in ipairs(patterns) do
-        local numStr = clean:match(pat)
-        if numStr then
-            local v = tonumber(numStr)
-            if v and v >= THRESHOLD then return v end
-        end
-    end
+    
+    if DEBUG then print("[DATA] No data for " .. fishName) end
     return nil
 end
 
@@ -163,92 +294,114 @@ end
 
 -- Grouped webhook
 local lastSend = 0
-local function sendGrouped(detected)
+local detectedFish = {}
+
+local function sendGrouped()
     local now = tick()
     if now - lastSend < 30 then return end
     lastSend = now
-    if #detected == 0 then return end
+    
+    if #detectedFish == 0 then return end
     
     local lines = {}
-    for i, f in ipairs(detected) do
-        table.insert(lines, i .. ". **" .. f.name .. "** - **" .. f.percent .. "%** (near shelf)")
+    for fishName, data in pairs(detectedFish) do
+        table.insert(lines, "• **" .. fishName .. "** - **" .. data.percent .. "%** (within " .. string.format("%.1f", data.distance) .. " studs)")
     end
-    local message = "**High % Fish Detected (" .. #detected .. " total, within " .. SHELF_RADIUS .. " studs of shelves):**\n" .. table.concat(lines, "\n")
+    
+    local message = "**Fish Near Shelves (" .. #lines .. " types, within " .. SHELF_RADIUS .. " studs):**\n" .. table.concat(lines, "\n")
     
     SendWebhook({content = message})
+    detectedFish = {}  -- Clear after sending
 end
 
--- Scan loop - CRITICAL: Only process fish that pass BOTH conditions:
--- 1. Is a wanted fish type
--- 2. Is within 3 studs of any shelf
-local lastScan = 0
-RunService.Heartbeat:Connect(function()
-    local now = tick()
-    if now - lastScan < SCAN_INTERVAL then return end
-    lastScan = now
+-- Main check function
+local function checkSpecificFish()
+    if DEBUG then print("\n[CHECK START] Checking specific fish locations...") end
     
-    if DEBUG then print("[SCAN START] Scanning " .. #fishFolders .. " fish folders...") end
-    local detected = {}
-    local scannedCount = 0
+    local checkedCount = 0
+    local nearShelfCount = 0
     
-    for folderIdx, folder in ipairs(fishFolders) do
-        if not folder then continue end
+    for _, fishData in ipairs(fishToCheck) do
+        local fishModel = fishData.path
+        local fishName = fishData.name
         
-        local children = folder:GetChildren()
-        scannedCount = scannedCount + #children
+        if not fishModel or not fishModel.Parent then
+            if DEBUG then print("[MISSING] " .. fishName .. " model not found") end
+            continue
+        end
         
-        for _, child in ipairs(children) do
-            -- FIRST check: Is it near a shelf?
-            if not isNearShelf(child) then
-                if DEBUG then 
-                    print("[SKIP-PROXIMITY] " .. child.Name .. " is NOT within " .. SHELF_RADIUS .. " studs of any shelf") 
-                end
-                continue  -- Skip this fish entirely if not near shelf
+        checkedCount = checkedCount + 1
+        
+        -- Find AFX part
+        local afxPart = findAFXPart(fishModel)
+        if not afxPart then
+            if DEBUG then print("[NO-AFX] No AFX in " .. fishName .. " (" .. fishModel.Name .. ")") end
+            continue
+        end
+        
+        -- Check proximity to specific shelf
+        local isNear, distance = isNearSpecificShelf(afxPart, fishName)
+        if not isNear then
+            if DEBUG and distance < 15 then
+                print("[FAR] " .. fishName .. ": " .. string.format("%.2f", distance) .. " studs")
             end
+            continue
+        end
+        
+        nearShelfCount = nearShelfCount + 1
+        
+        -- Get percentage
+        local percent = extractPercentageForFish(fishName)
+        if not percent then
+            if DEBUG then print("[NO-PERCENT] " .. fishName .. " has no data") end
+            continue
+        end
+        
+        -- Add to detected list (keep best/closest one)
+        if not detectedFish[fishName] or distance < detectedFish[fishName].distance then
+            detectedFish[fishName] = {
+                percent = percent,
+                distance = distance,
+                model = fishModel.Name
+            }
             
-            -- SECOND check: Get fish info
-            local name, action = getPromptInfo(child)
-            if not name then
-                if DEBUG then print("[SKIP-NOINFO] No prompt info on " .. child.Name) end
-                continue
-            end
-            
-            -- THIRD check: Is it a wanted fish type?
-            if not isWantedFish(name) then
-                if DEBUG then print("[SKIP-TYPE] " .. name .. " is not in wanted list") end
-                continue
-            end
-            
-            -- FOURTH check: Extract percentage
-            local percent = extractPercentage(name, action)
-            if not percent then
-                if DEBUG then print("[SKIP-PERCENT] " .. name .. " has no valid percentage or < " .. THRESHOLD .. "%") end
-                continue
-            end
-            
-            -- ALL CHECKS PASSED: Add to detected list
-            table.insert(detected, {name = name, percent = percent})
             if DEBUG then
-                print("[DETECT] ✓ " .. name .. " @ " .. percent .. "% (within " .. SHELF_RADIUS .. " studs of shelf)")
+                print("[NEAR] ✓ " .. fishName .. " @ " .. percent .. "% (" .. string.format("%.2f", distance) .. " studs)")
             end
         end
     end
     
-    if #detected > 0 then
-        sendGrouped(detected)
+    if DEBUG then
+        print("[CHECK END] Checked " .. checkedCount .. " fish, " .. nearShelfCount .. " near shelves")
+        print("Found " .. #detectedFish .. " fish types ≥ " .. THRESHOLD .. "% near their specific shelves")
     end
     
-    if DEBUG then 
-        print("[SCAN END] Scanned " .. scannedCount .. " items, found " .. #detected .. " fish meeting ALL criteria:") 
-        print("  • Wanted fish type")
-        print("  • Within " .. SHELF_RADIUS .. " studs of shelf")
-        print("  • ≥ " .. THRESHOLD .. "% completion")
+    if next(detectedFish) then
+        sendGrouped()
     end
+end
+
+-- Start checking
+local lastCheck = 0
+RunService.Heartbeat:Connect(function()
+    local now = tick()
+    if now - lastCheck < SCAN_INTERVAL then return end
+    lastCheck = now
+    
+    checkSpecificFish()
 end)
 
-print("[FishScanner] Active!")
-print("  • Scanning: FrameWork_WorkSpace.FishPPPart.Folder1/2/3")
-print("  • Shelves: FrameWork_WorkSpace['\232\180\167\230\158\182'].Folder1/2/3")
+-- Initial debug print
+print("\n[FishScanner] Active!")
+print("  • Checking: " .. #fishToCheck .. " specific fish models")
+print("  • Against: " .. #shelfLocations .. " specific shelf locations")
+print("  • Radius: " .. SHELF_RADIUS .. " studs")
 print("  • Threshold: ≥ " .. THRESHOLD .. "%")
-print("  • Shelf radius: " .. SHELF_RADIUS .. " studs (CRITICAL: Only fish within this range)")
-print("  • Wanted fish types: " .. #wantedFishTypes .. " types")
+print("\nFish types being monitored:")
+for fishName, _ in pairs(shelfLocations) do
+    print("  • " .. fishName)
+end
+
+-- Initial check
+wait(2)
+checkSpecificFish()
