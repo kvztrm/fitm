@@ -1,13 +1,14 @@
--- AutoFish Exploit Notifier - Scans ALL fish in Folder1/2/3, threshold 150+, grouped webhook
--- No fixed indices - counts every fish with PPPart_PP ProximityPrompt
+-- AutoFish Notifier - Scans indices 0 to 150 in Folder1, Folder2, Folder3
+-- Groups all detected fish into one webhook message
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
-local THRESHOLD = 150
-local SCAN_INTERVAL = 90   -- seconds between scans
+local THRESHOLD = 0        -- reports any detected number (0 and up)
+local MAX_INDEX = 150
+local SCAN_INTERVAL = 90   -- seconds between full scans
 local DEBUG = true
 
 -- Folders
@@ -20,25 +21,23 @@ local folder3 = fpp:WaitForChild("Folder3", 5)
 
 local folders = {folder1, folder2, folder3}
 
-print("[FishScanner] Starting full folder scan (all children)")
+print("[FishScanner] Will scan indices 0 to " .. MAX_INDEX .. " in each folder")
 
 -- Get text from ProximityPrompt
-local function getPromptText(fishPart)
-    if not fishPart then return nil, nil end
+local function getPromptText(part)
+    if not part then return nil end
 
-    local prompt = fishPart:FindFirstChild("PPPart_PP")
-    if not prompt or not prompt:IsA("ProximityPrompt") then return nil, nil end
+    local prompt = part:FindFirstChild("PPPart_PP")
+    if not prompt or not prompt:IsA("ProximityPrompt") then return nil end
 
-    local objText = prompt.ObjectText or "Unknown Fish"
-    local actText = prompt.ActionText or ""
-
-    return objText, actText
+    local obj = prompt.ObjectText or ""
+    local act = prompt.ActionText or ""
+    return obj .. " " .. act
 end
 
--- Extract percentage (improved accuracy)
-local function extractPercentage(actText, objText)
-    local text = (actText or "") .. " " .. (objText or "")
-    if text == "" then return nil end
+-- Extract any number (percentage or raw)
+local function extractNumber(text)
+    if not text or text == "" then return nil end
 
     local clean = text:lower():gsub("%s+", "")
     local patterns = {
@@ -46,7 +45,7 @@ local function extractPercentage(actText, objText)
         "(%d+)%%",
         "(%d+%.?%d*) ?percent",
         "%%(%d+)",
-        "(%d+%.?%d*)"
+        "(%d+)"   -- any number
     }
 
     for _, pat in ipairs(patterns) do
@@ -60,7 +59,7 @@ local function extractPercentage(actText, objText)
     return nil
 end
 
--- WeAreDevs-style webhook sender
+-- WeAreDevs style webhook sender
 local function SendWebhook(payload)
     local headers = {["Content-Type"] = "application/json"}
     local body = HttpService:JSONEncode(payload)
@@ -75,33 +74,33 @@ local function SendWebhook(payload)
     end)
 
     if success then
-        print("[WEBHOOK] Sent successfully! Status: " .. (response.StatusCode or "no code"))
+        print("[WEBHOOK] Sent! Status: " .. (response.StatusCode or "no code"))
     else
         warn("[WEBHOOK] Failed: " .. tostring(response))
     end
 end
 
--- Send one combined webhook with all high fish
+-- Send one combined message
 local lastSend = 0
 
-local function sendCombined(highFishes)
+local function sendCombined(detected)
     local now = tick()
     if now - lastSend < 30 then return end
     lastSend = now
 
-    if #highFishes == 0 then return end
+    if #detected == 0 then return end
 
-    local message = "**High % Fish Detected (" .. #highFishes .. " total):**\n"
-    for i, fish in ipairs(highFishes) do
-        message = message .. i .. ". **" .. fish.name .. "** - **" .. fish.percent .. "%**\n"
+    local lines = {}
+    for i, entry in ipairs(detected) do
+        table.insert(lines, i .. ". **" .. entry.name .. "** - **" .. entry.value .. "**")
     end
 
-    local payload = { content = message }
+    local message = "**Detected Fish (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
 
-    SendWebhook(payload)
+    SendWebhook({content = message})
 end
 
--- Scan all folders every SCAN_INTERVAL seconds
+-- Scan loop
 local lastScan = 0
 
 RunService.Heartbeat:Connect(function()
@@ -109,30 +108,34 @@ RunService.Heartbeat:Connect(function()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
 
-    if DEBUG then print("[SCAN START] Checking all fish in folders...") end
+    if DEBUG then print("[SCAN START] Indices 0–" .. MAX_INDEX .. " in all folders") end
 
-    local highFishes = {}
+    local detected = {}
 
-    for _, folder in ipairs(folders) do
+    for folderIndex, folder in ipairs(folders) do
         if not folder then continue end
 
-        for _, child in ipairs(folder:GetChildren()) do
-            local fishName, actionText = getPromptText(child)
-            if fishName then
-                local percent = extractPercentage(actionText, fishName)
-                if percent then
-                    table.insert(highFishes, {name = fishName, percent = percent})
+        for i = 0, MAX_INDEX do
+            local child = folder:GetChildren()[i + 1]  -- Lua tables are 1-based
+            if not child then continue end
+
+            local text = getPromptText(child)
+            if text then
+                local value = extractNumber(text)
+                if value then
+                    local name = child.Name or ("Index " .. i .. " - Folder" .. folderIndex)
+                    table.insert(detected, {name = name, value = value})
                     if DEBUG then
-                        print("[HIGH] " .. fishName .. " at " .. percent .. "%")
+                        print("[DETECT] Folder" .. folderIndex .. " Index " .. i .. " → " .. value .. " (" .. name .. ")")
                     end
                 end
             end
         end
     end
 
-    sendCombined(highFishes)
+    sendCombined(detected)
 
-    if DEBUG then print("[SCAN END] Found " .. #highFishes .. " high fish - next scan in " .. SCAN_INTERVAL .. "s") end
+    if DEBUG then print("[SCAN END] Detected " .. #detected .. " items - next in " .. SCAN_INTERVAL .. "s") end
 end)
 
-print("[FishScanner] Active - scanning ALL fish in Folder1/2/3 every " .. SCAN_INTERVAL .. " seconds")
+print("[FishScanner] Active - scanning indices 0–" .. MAX_INDEX .. " in Folder1/2/3")
