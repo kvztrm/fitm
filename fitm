@@ -1,137 +1,154 @@
--- AutoFish Exploit Notifier
--- Scans ONLY the specific fish parts you listed
--- Sends webhook when any has >= threshold %
+-- AutoFish Exploit Notifier - Scans ONLY specified fish positions
+-- Looks INSIDE PPPart_PP for TextLabel / GUI text (not on the Part itself)
 
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
 local WEBHOOK_URL = "https://webhook.lewisakura.moe/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
-local THRESHOLD = 50       -- change to 200 or whatever you want
+local THRESHOLD = 50
 local DEBUG = true
-local COOLDOWN = 6         -- seconds between sends
+local COOLDOWN = 6  -- seconds
 
 -- Folders
-local fpp = workspace:WaitForChild("FrameWork_WorkSpace", 10)
-    :WaitForChild("FishPPPart", 5)
-
+local fpp = workspace:WaitForChild("FrameWork_WorkSpace", 10):WaitForChild("FishPPPart", 5)
 local folder1 = fpp:WaitForChild("Folder1", 5)
 local folder2 = fpp:WaitForChild("Folder2", 5)
 local folder3 = fpp:WaitForChild("Folder3", 5)
 
--- Table of all the specific fish parts you listed
-local fishRefs = {
+-- All your specified fish positions (with friendly name)
+local fishList = {
     -- Folder1
-    {part = folder1 and folder1:GetChildren()[24], name = "SCP-300 Rightest"},
-    {part = folder1 and folder1:GetChildren()[44], name = "SCP-300 Middle"},
-    {part = folder1 and folder1:GetChildren()[25], name = "SCP-300 Leftest"},
+    {obj = folder1 and folder1:GetChildren()[24], name = "SCP-300 Rightest"},
+    {obj = folder1 and folder1:GetChildren()[44], name = "SCP-300 Middle"},
+    {obj = folder1 and folder1:GetChildren()[25], name = "SCP-300 Leftest"},
 
-    {part = folder1 and folder1:GetChildren()[48], name = "Plesiosaurus Rightest"},
-    {part = folder1 and folder1:GetChildren()[27], name = "Plesiosaurus Middle"},
-    {part = folder1 and folder1:GetChildren()[26], name = "Plesiosaurus Leftest"},
+    {obj = folder1 and folder1:GetChildren()[48], name = "Plesiosaurus Rightest"},
+    {obj = folder1 and folder1:GetChildren()[27], name = "Plesiosaurus Middle"},
+    {obj = folder1 and folder1:GetChildren()[26], name = "Plesiosaurus Leftest"},
 
-    {part = folder1 and folder1:GetChildren()[45], name = "Hammerhead Leftest"},
-    {part = folder1 and folder1:GetChildren()[46], name = "Hammerhead Middle"},
-    {part = folder1 and folder1:GetChildren()[47], name = "Hammerhead Rightest"},
+    {obj = folder1 and folder1:GetChildren()[45], name = "Hammerhead Leftest"},
+    {obj = folder1 and folder1:GetChildren()[46], name = "Hammerhead Middle"},
+    {obj = folder1 and folder1:GetChildren()[47], name = "Hammerhead Rightest"},
 
-    {part = folder1 and folder1:GetChildren()[43], name = "Sea Dweller Rightest"},
-    {part = folder1 and folder1:GetChildren()[42], name = "Sea Dweller Middle"},
-    {part = folder1 and folder1:GetChildren()[19], name = "Sea Dweller Leftest"},
+    {obj = folder1 and folder1:GetChildren()[43], name = "Sea Dweller Rightest"},
+    {obj = folder1 and folder1:GetChildren()[42], name = "Sea Dweller Middle"},
+    {obj = folder1 and folder1:GetChildren()[19], name = "Sea Dweller Leftest"},
 
-    {part = folder1 and folder1:GetChildren()[40], name = "Zombie Fish Middle"},
-    {part = folder1 and folder1:GetChildren()[39], name = "Zombie Fish Leftest"},
-    {part = folder1 and folder1:GetChildren()[9],  name = "Zombie Fish Rightest"},
+    {obj = folder1 and folder1:GetChildren()[40], name = "Zombie Fish Middle"},
+    {obj = folder1 and folder1:GetChildren()[39], name = "Zombie Fish Leftest"},
+    {obj = folder1 and folder1:GetChildren()[9],  name = "Zombie Fish Rightest"},
 
-    {part = folder1 and folder1:GetChildren()[38], name = "King Squid Middle"},
-    {part = folder1 and folder1:GetChildren()[37], name = "King Squid Leftest"},
-    {part = folder1 and folder1:GetChildren()[8],  name = "King Squid Rightest"},
+    {obj = folder1 and folder1:GetChildren()[38], name = "King Squid Middle"},
+    {obj = folder1 and folder1:GetChildren()[37], name = "King Squid Leftest"},
+    {obj = folder1 and folder1:GetChildren()[8],  name = "King Squid Rightest"},
 
-    {part = folder1 and folder1:GetChildren()[36], name = "Gran Maja Rightest"},
-    {part = folder1 and folder1:GetChildren()[35], name = "Gran Maja Middle"},
-    {part = folder1 and folder1:GetChildren()[34], name = "Gran Maja Leftest"},
+    {obj = folder1 and folder1:GetChildren()[36], name = "Gran Maja Rightest"},
+    {obj = folder1 and folder1:GetChildren()[35], name = "Gran Maja Middle"},
+    {obj = folder1 and folder1:GetChildren()[34], name = "Gran Maja Leftest"},
 
-    {part = folder1 and folder1:GetChildren()[33], name = "Bloop Rightest"},
-    {part = folder1 and folder1:GetChildren()[32], name = "Bloop Leftest"},
-    {part = folder1 and folder1:GetChildren()[6],  name = "Bloop Middle"},
+    {obj = folder1 and folder1:GetChildren()[33], name = "Bloop Rightest"},
+    {obj = folder1 and folder1:GetChildren()[32], name = "Bloop Leftest"},
+    {obj = folder1 and folder1:GetChildren()[6],  name = "Bloop Middle"},
 
-    {part = folder1 and folder1:GetChildren()[31], name = "Julia Beast (ningen) Middle"},
-    {part = folder1 and folder1:GetChildren()[30], name = "Julia Beast (ningen) Leftest"},
-    {part = folder1 and folder1:GetChildren()[5],  name = "Julia Beast (ningen) Rightest"},
+    {obj = folder1 and folder1:GetChildren()[31], name = "Julia Beast (ningen) Middle"},
+    {obj = folder1 and folder1:GetChildren()[30], name = "Julia Beast (ningen) Leftest"},
+    {obj = folder1 and folder1:GetChildren()[5],  name = "Julia Beast (ningen) Rightest"},
 
-    {part = folder1 and folder1:GetChildren()[29], name = "Ningen Rightest"},
-    {part = folder1 and folder1:GetChildren()[28], name = "Ningen Middle"},
-    {part = folder1 and folder1:GetChildren()[4],  name = "Ningen Leftest"},
+    {obj = folder1 and folder1:GetChildren()[29], name = "Ningen Rightest"},
+    {obj = folder1 and folder1:GetChildren()[28], name = "Ningen Middle"},
+    {obj = folder1 and folder1:GetChildren()[4],  name = "Ningen Leftest"},
 
-    {part = folder1 and folder1:GetChildren()[21], name = "Sea Reaper Rightest"},
-    {part = folder1 and folder1:GetChildren()[20], name = "Sea Reaper Middle"},
-    {part = folder1 and folder1:GetChildren()[11], name = "Sea Reaper Leftest"},
+    {obj = folder1 and folder1:GetChildren()[21], name = "Sea Reaper Rightest"},
+    {obj = folder1 and folder1:GetChildren()[20], name = "Sea Reaper Middle"},
+    {obj = folder1 and folder1:GetChildren()[11], name = "Sea Reaper Leftest"},
 
     -- Folder2
-    {part = folder2 and folder2:GetChildren()[36], name = "Julia Beast (middle) Rightest"},
-    {part = folder2 and folder2:GetChildren()[26], name = "Julia Beast (middle) Middle"},
-    {part = folder2 and folder2:GetChildren()[35], name = "Julia Beast (middle) Leftest"},
+    {obj = folder2 and folder2:GetChildren()[36], name = "Julia Beast (middle) Rightest"},
+    {obj = folder2 and folder2:GetChildren()[26], name = "Julia Beast (middle) Middle"},
+    {obj = folder2 and folder2:GetChildren()[35], name = "Julia Beast (middle) Leftest"},
 
-    {part = folder2 and folder2:GetChildren()[30], name = "Megalodon Leftest"},
-    {part = folder2 and folder2:GetChildren()[8],  name = "Megalodon Rightest"},
-    {part = folder2 and folder2:GetChildren()[7],  name = "Megalodon Middle"},
+    {obj = folder2 and folder2:GetChildren()[30], name = "Megalodon Leftest"},
+    {obj = folder2 and folder2:GetChildren()[8],  name = "Megalodon Rightest"},
+    {obj = folder2 and folder2:GetChildren()[7],  name = "Megalodon Middle"},
 
     -- Folder3
-    {part = folder3 and folder3:GetChildren()[69], name = "Sea Eater Rightest"},
-    {part = folder3 and folder3:GetChildren()[68], name = "Sea Eater Middle"},
-    {part = folder3 and folder3:GetChildren()[67], name = "Sea Eater Leftest"},
+    {obj = folder3 and folder3:GetChildren()[69], name = "Sea Eater Rightest"},
+    {obj = folder3 and folder3:GetChildren()[68], name = "Sea Eater Middle"},
+    {obj = folder3 and folder3:GetChildren()[67], name = "Sea Eater Leftest"},
 
-    {part = folder3 and folder3:GetChildren()[66], name = "Boneshark Middle"},
-    {part = folder3 and folder3:GetChildren()[65], name = "Boneshark Leftest"},
-    {part = folder3 and folder3:GetChildren()[61], name = "Boneshark Rightest"},
+    {obj = folder3 and folder3:GetChildren()[66], name = "Boneshark Middle"},
+    {obj = folder3 and folder3:GetChildren()[65], name = "Boneshark Leftest"},
+    {obj = folder3 and folder3:GetChildren()[61], name = "Boneshark Rightest"},
 
-    {part = folder3 and folder3:GetChildren()[60], name = "Shark Girl Rightest"},
-    {part = folder3 and folder3:GetChildren()[59], name = "Shark Girl Middle"},
-    {part = folder3 and folder3:GetChildren()[58], name = "Shark Girl Leftest"},
+    {obj = folder3 and folder3:GetChildren()[60], name = "Shark Girl Rightest"},
+    {obj = folder3 and folder3:GetChildren()[59], name = "Shark Girl Middle"},
+    {obj = folder3 and folder3:GetChildren()[58], name = "Shark Girl Leftest"},
 
-    {part = folder3 and folder3:GetChildren()[57], name = "Shark Boy Leftest"},
-    {part = folder3 and folder3:GetChildren()[56], name = "Shark Boy Middle"},
-    {part = folder3 and folder3:GetChildren()[55], name = "Shark Boy Rightest"},
+    {obj = folder3 and folder3:GetChildren()[57], name = "Shark Boy Leftest"},
+    {obj = folder3 and folder3:GetChildren()[56], name = "Shark Boy Middle"},
+    {obj = folder3 and folder3:GetChildren()[55], name = "Shark Boy Rightest"},
 }
 
-print("[FishScanner] Loaded " .. #fishRefs .. " specific fish positions")
+print("[FishScanner] Loaded " .. #fishList .. " specific fish references")
 
--- Try to get any text from the part
-local function getText(part)
-    if not part then return nil end
+-- Find readable text inside the given part (focus on PPPart_PP)
+local function getTextFromFishPart(fishPart)
+    if not fishPart then return nil end
 
-    local t = part.ObjectText or part.Text
-    if typeof(t) == "string" and t ~= "" then return t end
-
-    local label = part:FindFirstChildWhichIsA("TextLabel", true)
-    if label then
-        t = label.ObjectText or label.Text
-        if typeof(t) == "string" and t ~= "" then return t end
+    local pp = fishPart:FindFirstChild("PPPart_PP")
+    if not pp then
+        if DEBUG then print("[DEBUG] No PPPart_PP inside " .. fishPart.Name) end
+        return nil
     end
 
-    local gui = part:FindFirstChildWhichIsA("SurfaceGui") or part:FindFirstChildWhichIsA("BillboardGui")
-    if gui then
-        label = gui:FindFirstChildWhichIsA("TextLabel")
-        if label then
-            t = label.ObjectText or label.Text
-            if typeof(t) == "string" and t ~= "" then return t end
+    -- Try direct properties first
+    if typeof(pp.Text) == "string" and pp.Text ~= "" then return pp.Text end
+    if typeof(pp.ObjectText) == "string" and pp.ObjectText ~= "" then return pp.ObjectText end
+
+    -- Look for TextLabel children (most common case)
+    for _, child in ipairs(pp:GetChildren()) do
+        if child:IsA("TextLabel") then
+            local t = child.Text or child.ObjectText
+            if typeof(t) == "string" and t ~= "" then
+                if DEBUG then print("[DEBUG] Found TextLabel text: " .. t) end
+                return t
+            end
         end
     end
 
+    -- SurfaceGui / BillboardGui → TextLabel
+    for _, gui in ipairs(pp:GetChildren()) do
+        if gui:IsA("SurfaceGui") or gui:IsA("BillboardGui") then
+            local label = gui:FindFirstChildWhichIsA("TextLabel")
+            if label then
+                local t = label.Text or label.ObjectText
+                if typeof(t) == "string" and t ~= "" then
+                    if DEBUG then print("[DEBUG] Found GUI text: " .. t) end
+                    return t
+                end
+            end
+        end
+    end
+
+    if DEBUG then print("[DEBUG] No readable text found in PPPart_PP of " .. fishPart.Name) end
     return nil
 end
 
--- Extract percentage
-local function findPercentage(text)
+-- Parse percentage
+local function parsePercentage(text)
     if not text or text == "" then return nil end
 
-    local lower = text:lower():gsub(" ", "")
-    local patterns = {"(%d+%.?%d*)%%", "(%d+%.?%d*) ?percent", "(%d+)%%?", "(%d+)"}
+    local lower = text:lower():gsub("%s+", "")
+    local patterns = {"(%d+%.?%d*)%%", "(%d+)%%", "(%d+%.?%d*)percent", "(%d+)"}
 
     for _, pat in ipairs(patterns) do
-        local num = lower:match(pat)
-        if num then
-            local v = tonumber(num)
-            if v and v >= THRESHOLD then return v end
+        local numStr = lower:match(pat)
+        if numStr then
+            local v = tonumber(numStr)
+            if v and v >= THRESHOLD then
+                return v
+            end
         end
     end
 
@@ -139,22 +156,21 @@ local function findPercentage(text)
 end
 
 -- Send webhook
-local lastSend = 0
+local lastSendTime = 0
 
-local function sendWebhook(value, fishName, positionName)
+local function sendNotification(value, fishName)
     local now = tick()
-    if now - lastSend < COOLDOWN then return end
-    lastSend = now
+    if now - lastSendTime < COOLDOWN then return end
+    lastSendTime = now
 
     local data = {
         embeds = {{
             title = "HIGH % FISH (" .. value .. "%)",
-            description = "Fish ready to exploit",
+            description = "Ready for exploit",
             color = 0xFF0000,
             fields = {
-                {name = "Fish",   value = fishName, inline = true},
-                {name = "Percent", value = value .. "%", inline = true},
-                {name = "Pos",     value = positionName, inline = true}
+                {name = "Fish", value = fishName, inline = true},
+                {name = "%", value = value .. "%", inline = true}
             },
             timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
         }}
@@ -164,27 +180,27 @@ local function sendWebhook(value, fishName, positionName)
         HttpService:PostAsync(WEBHOOK_URL, HttpService:JSONEncode(data), Enum.HttpContentType.ApplicationJson)
     end)
 
-    print("[WEBHOOK] Sent: " .. fishName .. " " .. value .. "% (" .. positionName .. ")")
+    print("[WEBHOOK] Sent: " .. fishName .. " @ " .. value .. "%")
 end
 
--- Scan loop
+-- Main loop
 RunService.Heartbeat:Connect(function()
-    for _, entry in ipairs(fishRefs) do
-        local part = entry.part
+    for _, entry in ipairs(fishList) do
+        local part = entry.obj
         if not part then continue end
 
-        local text = getText(part)
+        local text = getTextFromFishPart(part)
         if text then
             if DEBUG then
-                print("[TEXT] " .. entry.name .. ": " .. text)
+                print("[TEXT DETECTED] " .. entry.name .. ": \"" .. text .. "\"")
             end
 
-            local value = findPercentage(text)
+            local value = parsePercentage(text)
             if value then
-                sendWebhook(value, entry.name, entry.name)
+                sendNotification(value, entry.name)
             end
         end
     end
 end)
 
-print("[FishScanner] Running - checking only the " .. #fishRefs .. " specific fish positions")
+print("[FishScanner] Started - checking only your listed fish positions")
