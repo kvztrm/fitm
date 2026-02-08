@@ -1,12 +1,13 @@
--- AutoFish Notifier - WeAreDevs style webhook + grouped detection
+-- AutoFish Exploit Notifier - Scans ALL fish in Folder1/2/3, threshold 150+, grouped webhook
+-- No fixed indices - counts every fish with PPPart_PP ProximityPrompt
 
 local RunService = game:GetService("RunService")
-local HttpService = game:GetService("HttpService")  -- only for JSONEncode
+local HttpService = game:GetService("HttpService")
 
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
-local THRESHOLD = 50
-local SCAN_INTERVAL = 90   -- seconds
+local THRESHOLD = 150
+local SCAN_INTERVAL = 90   -- seconds between scans
 local DEBUG = true
 
 -- Folders
@@ -17,87 +18,35 @@ local folder1 = fpp:WaitForChild("Folder1", 5)
 local folder2 = fpp:WaitForChild("Folder2", 5)
 local folder3 = fpp:WaitForChild("Folder3", 5)
 
--- Your specific fish positions
-local fishRefs = {
-    {part = folder1 and folder1:GetChildren()[24], name = "SCP-300 Rightest"},
-    {part = folder1 and folder1:GetChildren()[44], name = "SCP-300 Middle"},
-    {part = folder1 and folder1:GetChildren()[25], name = "SCP-300 Leftest"},
-    {part = folder1 and folder1:GetChildren()[48], name = "Plesiosaurus Rightest"},
-    {part = folder1 and folder1:GetChildren()[27], name = "Plesiosaurus Middle"},
-    {part = folder1 and folder1:GetChildren()[26], name = "Plesiosaurus Leftest"},
-    {part = folder1 and folder1:GetChildren()[45], name = "Hammerhead Leftest"},
-    {part = folder1 and folder1:GetChildren()[46], name = "Hammerhead Middle"},
-    {part = folder1 and folder1:GetChildren()[47], name = "Hammerhead Rightest"},
-    {part = folder1 and folder1:GetChildren()[43], name = "Sea Dweller Rightest"},
-    {part = folder1 and folder1:GetChildren()[42], name = "Sea Dweller Middle"},
-    {part = folder1 and folder1:GetChildren()[19], name = "Sea Dweller Leftest"},
-    {part = folder1 and folder1:GetChildren()[40], name = "Zombie Fish Middle"},
-    {part = folder1 and folder1:GetChildren()[39], name = "Zombie Fish Leftest"},
-    {part = folder1 and folder1:GetChildren()[9],  name = "Zombie Fish Rightest"},
-    {part = folder1 and folder1:GetChildren()[38], name = "King Squid Middle"},
-    {part = folder1 and folder1:GetChildren()[37], name = "King Squid Leftest"},
-    {part = folder1 and folder1:GetChildren()[8],  name = "King Squid Rightest"},
-    {part = folder1 and folder1:GetChildren()[36], name = "Gran Maja Rightest"},
-    {part = folder1 and folder1:GetChildren()[35], name = "Gran Maja Middle"},
-    {part = folder1 and folder1:GetChildren()[34], name = "Gran Maja Leftest"},
-    {part = folder1 and folder1:GetChildren()[33], name = "Bloop Rightest"},
-    {part = folder1 and folder1:GetChildren()[32], name = "Bloop Leftest"},
-    {part = folder1 and folder1:GetChildren()[6],  name = "Bloop Middle"},
-    {part = folder1 and folder1:GetChildren()[31], name = "Julia Beast (ningen) Middle"},
-    {part = folder1 and folder1:GetChildren()[30], name = "Julia Beast (ningen) Leftest"},
-    {part = folder1 and folder1:GetChildren()[5],  name = "Julia Beast (ningen) Rightest"},
-    {part = folder1 and folder1:GetChildren()[29], name = "Ningen Rightest"},
-    {part = folder1 and folder1:GetChildren()[28], name = "Ningen Middle"},
-    {part = folder1 and folder1:GetChildren()[4],  name = "Ningen Leftest"},
-    {part = folder1 and folder1:GetChildren()[21], name = "Sea Reaper Rightest"},
-    {part = folder1 and folder1:GetChildren()[20], name = "Sea Reaper Middle"},
-    {part = folder1 and folder1:GetChildren()[11], name = "Sea Reaper Leftest"},
-    -- Folder2
-    {part = folder2 and folder2:GetChildren()[36], name = "Julia Beast (middle) Rightest"},
-    {part = folder2 and folder2:GetChildren()[26], name = "Julia Beast (middle) Middle"},
-    {part = folder2 and folder2:GetChildren()[35], name = "Julia Beast (middle) Leftest"},
-    {part = folder2 and folder2:GetChildren()[30], name = "Megalodon Leftest"},
-    {part = folder2 and folder2:GetChildren()[8],  name = "Megalodon Rightest"},
-    {part = folder2 and folder2:GetChildren()[7],  name = "Megalodon Middle"},
-    -- Folder3
-    {part = folder3 and folder3:GetChildren()[69], name = "Sea Eater Rightest"},
-    {part = folder3 and folder3:GetChildren()[68], name = "Sea Eater Middle"},
-    {part = folder3 and folder3:GetChildren()[67], name = "Sea Eater Leftest"},
-    {part = folder3 and folder3:GetChildren()[66], name = "Boneshark Middle"},
-    {part = folder3 and folder3:GetChildren()[65], name = "Boneshark Leftest"},
-    {part = folder3 and folder3:GetChildren()[61], name = "Boneshark Rightest"},
-    {part = folder3 and folder3:GetChildren()[60], name = "Shark Girl Rightest"},
-    {part = folder3 and folder3:GetChildren()[59], name = "Shark Girl Middle"},
-    {part = folder3 and folder3:GetChildren()[58], name = "Shark Girl Leftest"},
-    {part = folder3 and folder3:GetChildren()[57], name = "Shark Boy Leftest"},
-    {part = folder3 and folder3:GetChildren()[56], name = "Shark Boy Middle"},
-    {part = folder3 and folder3:GetChildren()[55], name = "Shark Boy Rightest"},
-}
+local folders = {folder1, folder2, folder3}
 
-print("[FishScanner] Loaded " .. #fishRefs .. " fish positions")
+print("[FishScanner] Starting full folder scan (all children)")
 
 -- Get text from ProximityPrompt
 local function getPromptText(fishPart)
-    if not fishPart then return nil end
+    if not fishPart then return nil, nil end
 
     local prompt = fishPart:FindFirstChild("PPPart_PP")
-    if not prompt or not prompt:IsA("ProximityPrompt") then return nil end
+    if not prompt or not prompt:IsA("ProximityPrompt") then return nil, nil end
 
-    local objText = prompt.ObjectText or ""
+    local objText = prompt.ObjectText or "Unknown Fish"
     local actText = prompt.ActionText or ""
-    return objText .. " " .. actText
+
+    return objText, actText
 end
 
--- Parse percentage
-local function extractPercentage(text)
-    if not text or text == "" then return nil end
+-- Extract percentage (improved accuracy)
+local function extractPercentage(actText, objText)
+    local text = (actText or "") .. " " .. (objText or "")
+    if text == "" then return nil end
 
     local clean = text:lower():gsub("%s+", "")
     local patterns = {
         "(%d+%.?%d*)%%",
         "(%d+)%%",
-        "(%d+%.?%d*)percent",
-        "(%d+)"
+        "(%d+%.?%d*) ?percent",
+        "%%(%d+)",
+        "(%d+%.?%d*)"
     }
 
     for _, pat in ipairs(patterns) do
@@ -111,12 +60,9 @@ local function extractPercentage(text)
     return nil
 end
 
--- WeAreDevs style webhook function (the one you confirmed works)
+-- WeAreDevs-style webhook sender
 local function SendWebhook(payload)
-    local headers = {
-        ["Content-Type"] = "application/json"
-    }
-
+    local headers = {["Content-Type"] = "application/json"}
     local body = HttpService:JSONEncode(payload)
 
     local success, response = pcall(function()
@@ -135,7 +81,7 @@ local function SendWebhook(payload)
     end
 end
 
--- Send combined webhook
+-- Send one combined webhook with all high fish
 local lastSend = 0
 
 local function sendCombined(highFishes)
@@ -147,17 +93,15 @@ local function sendCombined(highFishes)
 
     local message = "**High % Fish Detected (" .. #highFishes .. " total):**\n"
     for i, fish in ipairs(highFishes) do
-        message = message .. i .. ". **" .. fish.name .. "** - " .. fish.percent .. "%\n"
+        message = message .. i .. ". **" .. fish.name .. "** - **" .. fish.percent .. "%**\n"
     end
 
-    local payload = {
-        content = message
-    }
+    local payload = { content = message }
 
     SendWebhook(payload)
 end
 
--- Scan loop
+-- Scan all folders every SCAN_INTERVAL seconds
 local lastScan = 0
 
 RunService.Heartbeat:Connect(function()
@@ -165,21 +109,22 @@ RunService.Heartbeat:Connect(function()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
 
-    if DEBUG then print("[SCAN] Checking fish...") end
+    if DEBUG then print("[SCAN START] Checking all fish in folders...") end
 
     local highFishes = {}
 
-    for _, entry in ipairs(fishRefs) do
-        local part = entry.part
-        if not part then continue end
+    for _, folder in ipairs(folders) do
+        if not folder then continue end
 
-        local text = getPromptText(part)
-        if text then
-            local value = extractPercentage(text)
-            if value then
-                table.insert(highFishes, {name = entry.name, percent = value})
-                if DEBUG then
-                    print("[HIGH] " .. entry.name .. " at " .. value .. "%")
+        for _, child in ipairs(folder:GetChildren()) do
+            local fishName, actionText = getPromptText(child)
+            if fishName then
+                local percent = extractPercentage(actionText, fishName)
+                if percent then
+                    table.insert(highFishes, {name = fishName, percent = percent})
+                    if DEBUG then
+                        print("[HIGH] " .. fishName .. " at " .. percent .. "%")
+                    end
                 end
             end
         end
@@ -187,7 +132,7 @@ RunService.Heartbeat:Connect(function()
 
     sendCombined(highFishes)
 
-    if DEBUG then print("[SCAN END] Found " .. #highFishes .. " high fish") end
+    if DEBUG then print("[SCAN END] Found " .. #highFishes .. " high fish - next scan in " .. SCAN_INTERVAL .. "s") end
 end)
 
-print("[FishScanner] Active - grouped webhook using WeAreDevs-style request()")
+print("[FishScanner] Active - scanning ALL fish in Folder1/2/3 every " .. SCAN_INTERVAL .. " seconds")
