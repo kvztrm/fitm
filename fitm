@@ -1,12 +1,12 @@
--- AutoFish Scanner - Indices 0 to 150 in Folder1/2/3 - Grouped Webhook
--- Full rewrite - no fixed names, pure index-based scan
+-- AutoFish Notifier - Scans indices 0 to 150 in Folder1/2/3
+-- Only reports ≥ 50% - grouped webhook
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
-local THRESHOLD = 0        -- report any number found (0 and up)
+local THRESHOLD = 50       -- changed to ≥ 50%
 local MAX_INDEX = 150
 local SCAN_INTERVAL = 90   -- seconds
 local DEBUG = true
@@ -15,13 +15,13 @@ local DEBUG = true
 local fpp = workspace:WaitForChild("FrameWork_WorkSpace", 10)
     :WaitForChild("FishPPPart", 5)
 
-local folders = {
-    Folder1 = fpp:WaitForChild("Folder1", 5),
-    Folder2 = fpp:WaitForChild("Folder2", 5),
-    Folder3 = fpp:WaitForChild("Folder3", 5)
-}
+local folder1 = fpp:WaitForChild("Folder1", 5)
+local folder2 = fpp:WaitForChild("Folder2", 5)
+local folder3 = fpp:WaitForChild("Folder3", 5)
 
-print("[Scanner] Ready - will check indices 0–" .. MAX_INDEX .. " in each folder every " .. SCAN_INTERVAL .. "s")
+local folders = {folder1, folder2, folder3}
+
+print("[FishScanner] Ready - checking indices 0–" .. MAX_INDEX .. " in each folder every " .. SCAN_INTERVAL .. "s")
 
 -- Get text from PPPart_PP
 local function readPrompt(part)
@@ -33,7 +33,7 @@ local function readPrompt(part)
     return (prompt.ObjectText or "") .. " " .. (prompt.ActionText or "")
 end
 
--- Extract first valid number
+-- Extract first valid number ≥ threshold
 local function getNumber(text)
     if not text or text == "" then return nil end
 
@@ -59,24 +59,45 @@ local function getNumber(text)
     return nil
 end
 
--- Send webhook (WeAreDevs style)
-local function sendWebhook(message)
-    local payload = { content = message }
-
-    local success, resp = pcall(function()
+-- Your exact webhook sender function
+local function SendWebhook(payload)
+    local headers = {["Content-Type"] = "application/json"}
+    local body = HttpService:JSONEncode(payload)
+    
+    local success, response = pcall(function()
         return request({
             Url = WEBHOOK_URL,
             Method = "POST",
-            Headers = {["Content-Type"] = "application/json"},
-            Body = HttpService:JSONEncode(payload)
+            Headers = headers,
+            Body = body
         })
     end)
-
+    
     if success then
-        print("[WEBHOOK OK] Status: " .. (resp.StatusCode or "unknown"))
+        print("[WEBHOOK] Sent! Status: " .. (response.StatusCode or "no code"))
     else
-        warn("[WEBHOOK ERROR] " .. tostring(resp))
+        warn("[WEBHOOK] Failed: " .. tostring(response))
     end
+end
+
+-- Send grouped webhook
+local lastSend = 0
+
+local function sendGrouped(detected)
+    local now = tick()
+    if now - lastSend < 30 then return end
+    lastSend = now
+    
+    if #detected == 0 then return end
+    
+    local lines = {}
+    for i, entry in ipairs(detected) do
+        table.insert(lines, i .. ". **" .. entry.name .. "** - **" .. entry.value .. "**")
+    end
+    
+    local message = "**Detected ≥" .. THRESHOLD .. "% (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
+    
+    SendWebhook({content = message})
 end
 
 -- Main scan
@@ -86,56 +107,36 @@ RunService.Heartbeat:Connect(function()
     local now = tick()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
-
-    if DEBUG then print("[SCAN] Starting full index check...") end
-
-    local found = {}
-
-    for folderName, folder in pairs(folders) do
-        if not folder then
-            if DEBUG then print("[SKIP] " .. folderName .. " missing") end
-            continue
-        end
-
+    
+    if DEBUG then print("[SCAN START] Indices 0–" .. MAX_INDEX .. " across folders") end
+    
+    local detected = {}
+    
+    for fIdx, folder in ipairs(folders) do
+        if not folder then continue end
+        
         for i = 0, MAX_INDEX do
             local child = folder:GetChildren()[i + 1]  -- Lua 1-based
             if not child then continue end
-
+            
             local text = readPrompt(child)
             if text then
-                local num = getNumber(text)
-                if num then
-                    local entry = {
-                        folder = folderName,
-                        index = i,
-                        partName = child.Name or "Index " .. i,
-                        value = num
-                    }
-                    table.insert(found, entry)
-
+                local value = getNumber(text)
+                if value then
+                    local entryName = child.Name or ("Idx " .. i .. " (F" .. fIdx .. ")")
+                    table.insert(detected, {name = entryName, value = value})
+                    
                     if DEBUG then
-                        print(string.format("[FOUND] %s → Index %d → %s = %d", folderName, i, entry.partName, num))
+                        print(string.format("[FOUND] F%d idx %d → %s = %d", fIdx, i, entryName, value))
                     end
                 end
             end
         end
     end
-
-    if #found > 0 then
-        local lines = {}
-        for i, f in ipairs(found) do
-            table.insert(lines, string.format("%d. **%s** (Folder %s, Index %d) - **%d**", 
-                i, f.partName, f.folder, f.index, f.value))
-        end
-
-        local msg = "**Fish Detected (" .. #found .. " total):**\n" .. table.concat(lines, "\n")
-
-        sendWebhook(msg)
-    else
-        if DEBUG then print("[SCAN] Nothing found this cycle") end
-    end
-
-    if DEBUG then print("[SCAN] Done - next in " .. SCAN_INTERVAL .. "s") end
+    
+    sendGrouped(detected)
+    
+    if DEBUG then print("[SCAN END] Detected " .. #detected .. " items ≥ " .. THRESHOLD .. "%") end
 end)
 
-print("[FishScanner] Running - full 0–" .. MAX_INDEX .. " scan in all folders")
+print("[FishScanner] Running - threshold ≥ " .. THRESHOLD .. "% - indices 0–" .. MAX_INDEX)
