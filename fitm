@@ -1,55 +1,48 @@
--- AutoFish Notifier - Exact shelf positions only - with extra nil safety
--- Threshold ≥50% - grouped webhook
+-- TEMP DEBUG SCRIPT - No webhook sending, just massive logging
+-- Shows exactly what the script sees in PPPart_PP
 
 local RunService = game:GetService("RunService")
-local HttpService = game:GetService("HttpService")
-
-local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
 local THRESHOLD = 50
-local SCAN_INTERVAL = 90   -- seconds
+local MAX_INDEX = 150
 local DEBUG = true
 
--- Special shelf folder
-local shelfParent = workspace:WaitForChild("FrameWork_WorkSpace", 10)
-    :WaitForChild("\232\180\167\230\158\182", 5)
-
--- Fish data folder
-local fishDataParent = workspace:WaitForChild("FrameWork_WorkSpace", 10)
+-- Folders
+local fpp = workspace:WaitForChild("FrameWork_WorkSpace", 10)
     :WaitForChild("FishPPPart", 5)
 
--- Your exact shelf positions (folder index + index or name + label)
-local shelfPositions = {
-    {folderIdx = 1, index = 8,   name = nil, label = "Gran Maja"},
-    {folderIdx = 1, index = nil, name = "\229\177\149\229\143\176", label = "Hammerhead"},
-    {folderIdx = 1, index = 14,  name = nil, label = "Sea Dweller"},
-    {folderIdx = 1, index = 12,  name = nil, label = "Zombie Fish"},
-    {folderIdx = 1, index = 10,  name = nil, label = "King Squid"},
-    {folderIdx = 1, index = 15,  name = nil, label = "Sea Reaper"},
-    {folderIdx = 1, index = 7,   name = nil, label = "BLOOP"},
-    {folderIdx = 1, index = 6,   name = nil, label = "Julia Beast"},
-    {folderIdx = 1, index = 5,   name = nil, label = "Ningen"},
-    {folderIdx = 1, index = 3,   name = nil, label = "Plesiosaurus"},
-    {folderIdx = 1, index = nil, name = "\229\177\149\229\143\1761", label = "SCP3000"},
-    {folderIdx = 2, index = 6,   name = nil, label = "Megalodon"},
-    {folderIdx = 2, index = nil, name = "\230\158\182\229\173\144", label = "Julia Beast"},
-    {folderIdx = 3, index = 22,  name = nil, label = "Shark Girl"},
-    {folderIdx = 3, index = 21,  name = nil, label = "Shark Boy"},
-    {folderIdx = 3, index = 19,  name = nil, label = "Bone Shark"},
-    {folderIdx = 3, index = 18,  name = nil, label = "Sea Eater"},
-}
+local folder1 = fpp:WaitForChild("Folder1", 5)
+local folder2 = fpp:WaitForChild("Folder2", 5)
+local folder3 = fpp:WaitForChild("Folder3", 5)
 
-print("[FishScanner] Loaded " .. #shelfPositions .. " exact shelf positions")
+local folders = {folder1, folder2, folder3}
 
--- Get name and action text from PPPart_PP in FishPPPart
-local function getFishInfo(shelfPart)
-    if not shelfPart then return nil, nil end
+print("[DEBUG MODE] No webhook will be sent. Only printing what is found.")
 
-    local prompt = shelfPart:FindFirstChild("PPPart_PP")
-    if not prompt or not prompt:IsA("ProximityPrompt") then return nil, nil end
+-- Get name and action text
+local function getPromptInfo(part)
+    if not part then
+        print("[SKIP] Part is nil")
+        return nil, nil
+    end
 
-    local name = prompt.ObjectText or "Unknown Fish"
+    local prompt = part:FindFirstChild("PPPart_PP")
+    if not prompt then
+        print("[SKIP] No PPPart_PP in " .. part:GetFullName())
+        return nil, nil
+    end
+
+    if not prompt:IsA("ProximityPrompt") then
+        print("[SKIP] PPPart_PP is not ProximityPrompt in " .. part:GetFullName())
+        return nil, nil
+    end
+
+    local name = prompt.ObjectText or ""
     local action = prompt.ActionText or ""
+
+    print("[PROMPT FOUND] " .. part:GetFullName())
+    print("   ObjectText: " .. name)
+    print("   ActionText: " .. action)
 
     return name, action
 end
@@ -57,9 +50,14 @@ end
 -- Extract percentage
 local function extractPercentage(name, action)
     local text = (name or "") .. " " .. (action or "")
-    if text == "" then return nil end
+    if text == "" then
+        print("[PARSE] No text to parse")
+        return nil
+    end
 
     local clean = text:lower():gsub("%s+", "")
+    print("[PARSE INPUT] " .. text:sub(1, 100) .. (text:len() > 100 and "..." or ""))
+
     local patterns = {
         "(%d+%.?%d*)%%",
         "(%d+)%%",
@@ -71,55 +69,59 @@ local function extractPercentage(name, action)
         local numStr = clean:match(pat)
         if numStr then
             local v = tonumber(numStr)
-            if v and v >= THRESHOLD then return v end
+            if v then
+                print("[PARSE MATCH] Pattern '" .. pat .. "' → " .. v)
+                if v >= THRESHOLD then
+                    print("[ACCEPT] " .. v .. "% ≥ " .. THRESHOLD)
+                    return v
+                else
+                    print("[REJECT] " .. v .. "% < " .. THRESHOLD)
+                end
+            else
+                print("[PARSE FAIL] tonumber failed on '" .. numStr .. "'")
+            end
         end
     end
 
+    print("[PARSE] No valid percentage found")
     return nil
 end
 
--- Your exact webhook sender
-local function SendWebhook(payload)
-    local headers = {["Content-Type"] = "application/json"}
-    local body = HttpService:JSONEncode(payload)
-    
-    local success, response = pcall(function()
-        return request({
-            Url = WEBHOOK_URL,
-            Method = "POST",
-            Headers = headers,
-            Body = body
-        })
-    end)
-    
-    if success then
-        print("[WEBHOOK] Sent! Status: " .. (response.StatusCode or "no code"))
-    else
-        warn("[WEBHOOK] Failed: " .. tostring(response))
+-- Manual test scan on start
+print("[TEST SCAN] Running manual scan once at start...")
+
+for fIdx, folder in ipairs(folders) do
+    if not folder then
+        print("[FOLDER MISSING] Folder" .. fIdx)
+        continue
+    end
+
+    print("[FOLDER] " .. folder:GetFullName() .. " (" .. #folder:GetChildren() .. " children)")
+
+    for i = 0, MAX_INDEX do
+        local child = folder:GetChildren()[i + 1]
+        if not child then continue end
+
+        print("[CHECK] " .. child:GetFullName() .. " (index " .. i .. ")")
+
+        local name, action = getPromptInfo(child)
+        if name then
+            local percent = extractPercentage(name, action)
+            if percent then
+                print("[RESULT] " .. name .. " → " .. percent .. "% (≥ " .. THRESHOLD .. "%)")
+            else
+                print("[RESULT] No valid %")
+            end
+        else
+            print("[RESULT] No valid prompt")
+        end
     end
 end
 
--- Send grouped webhook
-local lastSend = 0
+print("[TEST SCAN] Finished. Check above for details.")
 
-local function sendGrouped(detected)
-    local now = tick()
-    if now - lastSend < 30 then return end
-    lastSend = now
-
-    if #detected == 0 then return end
-
-    local lines = {}
-    for i, f in ipairs(detected) do
-        table.insert(lines, i .. ". **" .. f.name .. "** - **" .. f.percent .. "%**")
-    end
-
-    local message = "**High % Fish on Shelves (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
-
-    SendWebhook({content = message})
-end
-
--- Scan loop
+-- Optional: periodic scan (comment out if you only want one test)
+--[[
 local lastScan = 0
 
 RunService.Heartbeat:Connect(function()
@@ -127,47 +129,10 @@ RunService.Heartbeat:Connect(function()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
 
-    if DEBUG then print("[SCAN START] Checking your 17 shelf positions...") end
-
-    local detected = {}
-
-    for _, entry in ipairs(shelfPositions) do
-        local shelfFolder = shelfFolders[entry.folderIdx]
-        if not shelfFolder then
-            if DEBUG then print("[SKIP] Folder" .. entry.folderIdx .. " missing") end
-            continue
-        end
-
-        local part = nil
-        if entry.index then
-            local children = shelfFolder:GetChildren()
-            if children and #children >= entry.index + 1 then
-                part = children[entry.index + 1]
-            end
-        elseif entry.name then
-            part = shelfFolder:FindFirstChild(entry.name)
-        end
-
-        if not part then
-            if DEBUG then print("[SKIP] Missing part: " .. entry.label) end
-            continue
-        end
-
-        local name, action = getFishInfo(part)
-        if name and name ~= "" then
-            local percent = extractPercentage(name, action)
-            if percent then
-                table.insert(detected, {name = name, percent = percent})
-                if DEBUG then
-                    print("[DETECT] " .. name .. " @ " .. percent .. "% - " .. entry.label)
-                end
-            end
-        end
-    end
-
-    sendGrouped(detected)
-
-    if DEBUG then print("[SCAN END] Found " .. #detected .. " high % fish") end
+    print("[PERIODIC SCAN] Starting...")
+    -- (same scan code as above)
+    print("[PERIODIC SCAN] End")
 end)
+--]]
 
-print("[FishScanner] Active - only your 17 shelf positions - ≥ " .. THRESHOLD .. "%")
+print("[DEBUG MODE ACTIVE] No webhook sent. Look at output above.")
