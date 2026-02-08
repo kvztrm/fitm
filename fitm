@@ -1,5 +1,5 @@
--- AutoFish Notifier - Only FishPPPart folders + your 17 exact positions
--- Real name from ObjectText, ≥50%, grouped webhook
+-- AutoFish Notifier - SAFE VERSION - nil-safe concatenation & logging
+-- Only your 17 positions in FishPPPart - ≥50%
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
@@ -7,10 +7,10 @@ local HttpService = game:GetService("HttpService")
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
 local THRESHOLD = 50
-local SCAN_INTERVAL = 90   -- seconds
+local SCAN_INTERVAL = 90
 local DEBUG = true
 
--- Fish data & models location
+-- Fish data folders
 local dataParent = workspace:WaitForChild("FrameWork_WorkSpace", 10)
     :WaitForChild("FishPPPart", 10)
 
@@ -20,9 +20,9 @@ local folders = {
     dataParent:WaitForChild("Folder3", 10)
 }
 
-print("[FishScanner] Data folders loaded")
+print("[INIT] Data folders loaded")
 
--- Your exact 17 positions (folder index + index or name + label)
+-- Your 17 exact positions
 local positions = {
     {folder = 1, index = 8,   name = nil, label = "Gran Maja"},
     {folder = 1, index = nil, name = "\229\177\149\229\143\176", label = "Hammerhead"},
@@ -43,25 +43,43 @@ local positions = {
     {folder = 3, index = 18,  name = nil, label = "Sea Eater"},
 }
 
-print("[FishScanner] Loaded " .. #positions .. " target positions")
+print("[INIT] Loaded " .. #positions .. " target positions")
 
--- Get name and action text from PPPart_PP
+-- Get prompt info
 local function getPromptInfo(part)
-    if not part then return nil, nil end
+    if not part then
+        print("[SKIP] Part nil")
+        return nil, nil
+    end
 
     local prompt = part:FindFirstChild("PPPart_PP")
-    if not prompt or not prompt:IsA("ProximityPrompt") then return nil, nil end
+    if not prompt then
+        print("[SKIP] No PPPart_PP in " .. part:GetFullName())
+        return nil, nil
+    end
 
-    local name = prompt.ObjectText or "Unknown Fish"
+    if not prompt:IsA("ProximityPrompt") then
+        print("[SKIP] Not ProximityPrompt")
+        return nil, nil
+    end
+
+    local name = prompt.ObjectText or "Unknown"
     local action = prompt.ActionText or ""
+
+    print("[PROMPT] " .. part:GetFullName())
+    print("   ObjectText: '" .. tostring(name) .. "'")
+    print("   ActionText: '" .. tostring(action) .. "'")
 
     return name, action
 end
 
--- Extract percentage
+-- Percentage
 local function extractPercentage(name, action)
-    local text = (name or "") .. " " .. (action or "")
-    if text == "" then return nil end
+    local text = tostring(name or "") .. " " .. tostring(action or "")
+    if text == "" then
+        print("[PARSE] Empty text")
+        return nil
+    end
 
     local clean = text:lower():gsub("%s+", "")
     local patterns = {
@@ -75,14 +93,18 @@ local function extractPercentage(name, action)
         local numStr = clean:match(pat)
         if numStr then
             local v = tonumber(numStr)
-            if v and v >= THRESHOLD then return v end
+            if v and v >= THRESHOLD then
+                print("[PARSE] Found " .. v .. "%")
+                return v
+            end
         end
     end
 
+    print("[PARSE] No valid %")
     return nil
 end
 
--- Webhook sender (your exact function)
+-- Webhook sender
 local function SendWebhook(payload)
     local headers = {["Content-Type"] = "application/json"}
     local body = HttpService:JSONEncode(payload)
@@ -103,7 +125,7 @@ local function SendWebhook(payload)
     end
 end
 
--- Send grouped webhook
+-- Grouped send
 local lastSend = 0
 
 local function sendGrouped(detected)
@@ -115,7 +137,8 @@ local function sendGrouped(detected)
 
     local lines = {}
     for i, f in ipairs(detected) do
-        table.insert(lines, i .. ". **" .. f.name .. "** - **" .. f.percent .. "%**")
+        local line = i .. ". **" .. tostring(f.name or "Unknown") .. "** - **" .. tostring(f.percent or 0) .. "%**"
+        table.insert(lines, line)
     end
 
     local message = "**High % Fish Detected (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
@@ -123,7 +146,7 @@ local function sendGrouped(detected)
     SendWebhook({content = message})
 end
 
--- Scan loop - only your 17 positions in FishPPPart
+-- Scan
 local lastScan = 0
 
 RunService.Heartbeat:Connect(function()
@@ -131,31 +154,37 @@ RunService.Heartbeat:Connect(function()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
 
-    if DEBUG then print("[SCAN START] Checking your 17 positions in FishPPPart...") end
+    if DEBUG then print("[SCAN START] Checking 17 positions...") end
 
     local detected = {}
 
     for _, entry in ipairs(positions) do
         local folder = folders[entry.folderIdx]
         if not folder then
-            if DEBUG then print("[SKIP] Folder" .. entry.folderIdx .. " missing") end
+            print("[SKIP] Folder" .. entry.folderIdx .. " missing for " .. entry.label)
             continue
         end
 
         local part = nil
         if entry.index then
             local children = folder:GetChildren()
-            if children and #children >= entry.index + 1 then
-                part = children[entry.index + 1]
+            if not children or type(children) ~= "table" then
+                print("[NIL] GetChildren() nil in Folder" .. entry.folderIdx)
+                continue
             end
+            if #children < entry.index + 1 then
+                print("[SKIP] Index " .. entry.index .. " out of bounds (only " .. #children .. ")")
+                continue
+            end
+            part = children[entry.index + 1]
         elseif entry.name then
             part = folder:FindFirstChild(entry.name)
+            if not part then
+                print("[SKIP] Named part '" .. entry.name .. "' not found")
+            end
         end
 
-        if not part then
-            if DEBUG then print("[SKIP] Position missing for " .. entry.label) end
-            continue
-        end
+        if not part then continue end
 
         local name, action = getPromptInfo(part)
         if name then
@@ -163,7 +192,7 @@ RunService.Heartbeat:Connect(function()
             if percent then
                 table.insert(detected, {name = name, percent = percent})
                 if DEBUG then
-                    print("[DETECT] " .. name .. " @ " .. percent .. "% - " .. entry.label)
+                    print("[DETECT] " .. tostring(name) .. " @ " .. percent .. "% - " .. entry.label)
                 end
             end
         end
@@ -171,7 +200,7 @@ RunService.Heartbeat:Connect(function()
 
     sendGrouped(detected)
 
-    if DEBUG then print("[SCAN END] Found " .. #detected .. " fish ≥ " .. THRESHOLD .. "%") end
+    if DEBUG then print("[SCAN END] Found " .. #detected .. " fish") end
 end)
 
-print("[FishScanner] Active - only your 17 positions in FishPPPart - ≥ " .. THRESHOLD .. "%")
+print("[FishScanner] Active - only 17 positions - ≥ " .. THRESHOLD .. "%")
