@@ -1,8 +1,7 @@
--- AutoFish Exploit Notifier - Using the direct Discord webhook
--- Groups all high % fish and sends one combined message
+-- AutoFish Notifier - WeAreDevs style webhook + grouped detection
 
 local RunService = game:GetService("RunService")
-local HttpService = game:GetService("HttpService")
+local HttpService = game:GetService("HttpService")  -- only for JSONEncode
 
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
@@ -53,12 +52,14 @@ local fishRefs = {
     {part = folder1 and folder1:GetChildren()[21], name = "Sea Reaper Rightest"},
     {part = folder1 and folder1:GetChildren()[20], name = "Sea Reaper Middle"},
     {part = folder1 and folder1:GetChildren()[11], name = "Sea Reaper Leftest"},
+    -- Folder2
     {part = folder2 and folder2:GetChildren()[36], name = "Julia Beast (middle) Rightest"},
     {part = folder2 and folder2:GetChildren()[26], name = "Julia Beast (middle) Middle"},
     {part = folder2 and folder2:GetChildren()[35], name = "Julia Beast (middle) Leftest"},
     {part = folder2 and folder2:GetChildren()[30], name = "Megalodon Leftest"},
     {part = folder2 and folder2:GetChildren()[8],  name = "Megalodon Rightest"},
     {part = folder2 and folder2:GetChildren()[7],  name = "Megalodon Middle"},
+    -- Folder3
     {part = folder3 and folder3:GetChildren()[69], name = "Sea Eater Rightest"},
     {part = folder3 and folder3:GetChildren()[68], name = "Sea Eater Middle"},
     {part = folder3 and folder3:GetChildren()[67], name = "Sea Eater Leftest"},
@@ -87,7 +88,7 @@ local function getPromptText(fishPart)
     return objText .. " " .. actText
 end
 
--- Extract percentage
+-- Parse percentage
 local function extractPercentage(text)
     if not text or text == "" then return nil end
 
@@ -110,10 +111,34 @@ local function extractPercentage(text)
     return nil
 end
 
--- Send one combined webhook using request()
+-- WeAreDevs style webhook function (the one you confirmed works)
+local function SendWebhook(payload)
+    local headers = {
+        ["Content-Type"] = "application/json"
+    }
+
+    local body = HttpService:JSONEncode(payload)
+
+    local success, response = pcall(function()
+        return request({
+            Url = WEBHOOK_URL,
+            Method = "POST",
+            Headers = headers,
+            Body = body
+        })
+    end)
+
+    if success then
+        print("[WEBHOOK] Sent successfully! Status: " .. (response.StatusCode or "no code"))
+    else
+        warn("[WEBHOOK] Failed: " .. tostring(response))
+    end
+end
+
+-- Send combined webhook
 local lastSend = 0
 
-local function sendCombinedWebhook(highFishes)
+local function sendCombined(highFishes)
     local now = tick()
     if now - lastSend < 30 then return end
     lastSend = now
@@ -125,22 +150,11 @@ local function sendCombinedWebhook(highFishes)
         message = message .. i .. ". **" .. fish.name .. "** - " .. fish.percent .. "%\n"
     end
 
-    local payload = { content = message }
+    local payload = {
+        content = message
+    }
 
-    local success, response = pcall(function()
-        return request({
-            Url = WEBHOOK_URL,
-            Method = "POST",
-            Headers = {["Content-Type"] = "application/json"},
-            Body = HttpService:JSONEncode(payload)
-        })
-    end)
-
-    if success then
-        print("[WEBHOOK] Grouped message sent! Status: " .. (response.StatusCode or "no code"))
-    else
-        warn("[WEBHOOK] Failed: " .. tostring(response))
-    end
+    SendWebhook(payload)
 end
 
 -- Scan loop
@@ -151,7 +165,7 @@ RunService.Heartbeat:Connect(function()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
 
-    if DEBUG then print("[SCAN START] Checking fish...") end
+    if DEBUG then print("[SCAN] Checking fish...") end
 
     local highFishes = {}
 
@@ -171,9 +185,9 @@ RunService.Heartbeat:Connect(function()
         end
     end
 
-    sendCombinedWebhook(highFishes)
+    sendCombined(highFishes)
 
     if DEBUG then print("[SCAN END] Found " .. #highFishes .. " high fish") end
 end)
 
-print("[FishScanner] Active - grouped webhook every " .. SCAN_INTERVAL .. " seconds")
+print("[FishScanner] Active - grouped webhook using WeAreDevs-style request()")
