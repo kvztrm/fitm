@@ -1,5 +1,4 @@
--- AutoFish Notifier - Full index scan (0-150), only real fish names, ≥50%
--- Groups only matching fish into one webhook
+-- AutoFish Notifier - Scan 0-150 in all folders, extract name + %, one grouped webhook
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
@@ -8,7 +7,7 @@ local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfj
 
 local THRESHOLD = 50
 local MAX_INDEX = 150
-local SCAN_INTERVAL = 90   -- seconds
+local SCAN_INTERVAL = 90
 local DEBUG = true
 
 -- Folders
@@ -21,53 +20,45 @@ local folder3 = fpp:WaitForChild("Folder3", 5)
 
 local folders = {folder1, folder2, folder3}
 
--- Wanted fish names (case-insensitive partial match)
-local wantedFish = {
-    "sea dweller",
-    "scp3000", "scp-300", "scp 300", "scp300",
-    "plesiosaurus",
-    "hammerhead", "hammerhead shark",
-    "bloop",
-    "gran maja", "el gran maja",
-    "julia beast",
-    "ningen",
-    "megalodon",
-    "zombie fish",
-    "sea eater",
-    "bone shark", "boneshark",
-    "shark girl",
-    "shark boy",
-    "king squid",
-    "sea reaper"
-}
+print("[FishScanner] Active - scanning 0 to " .. MAX_INDEX .. " in each folder")
 
--- Check if name matches any wanted fish
-local function isWantedFish(name)
-    if not name then return false end
-    local lower = name:lower()
-    for _, w in ipairs(wantedFish) do
-        if lower:find(w, 1, true) then
-            return true
-        end
+-- Your exact webhook sender
+local function SendWebhook(payload)
+    local headers = {["Content-Type"] = "application/json"}
+    local body = HttpService:JSONEncode(payload)
+    
+    local success, response = pcall(function()
+        return request({
+            Url = WEBHOOK_URL,
+            Method = "POST",
+            Headers = headers,
+            Body = body
+        })
+    end)
+    
+    if success then
+        print("[WEBHOOK] Sent! Status: " .. (response.StatusCode or "no code"))
+    else
+        warn("[WEBHOOK] Failed: " .. tostring(response))
     end
-    return false
 end
 
--- Get text from ProximityPrompt
-local function getPromptText(part)
-    if not part then return nil end
+-- Get name and action text
+local function getFishInfo(part)
+    if not part then return nil, nil end
 
     local prompt = part:FindFirstChild("PPPart_PP")
-    if not prompt or not prompt:IsA("ProximityPrompt") then return nil end
+    if not prompt or not prompt:IsA("ProximityPrompt") then return nil, nil end
 
-    local obj = prompt.ObjectText or ""
-    local act = prompt.ActionText or ""
-    return obj, act
+    local fishName = prompt.ObjectText or "Unknown"
+    local actionText = prompt.ActionText or ""
+
+    return fishName, actionText
 end
 
 -- Extract percentage
-local function extractPercentage(obj, act)
-    local text = (obj or "") .. " " .. (act or "")
+local function getPercentage(objText, actText)
+    local text = (objText or "") .. " " .. (actText or "")
     if text == "" then return nil end
 
     local clean = text:lower():gsub("%s+", "")
@@ -89,28 +80,7 @@ local function extractPercentage(obj, act)
     return nil
 end
 
--- Your exact webhook sender function
-local function SendWebhook(payload)
-    local headers = {["Content-Type"] = "application/json"}
-    local body = HttpService:JSONEncode(payload)
-    
-    local success, response = pcall(function()
-        return request({
-            Url = WEBHOOK_URL,
-            Method = "POST",
-            Headers = headers,
-            Body = body
-        })
-    end)
-    
-    if success then
-        print("[WEBHOOK] Sent! Status: " .. (response.StatusCode or "no code"))
-    else
-        warn("[WEBHOOK] Failed: " .. tostring(response))
-    end
-end
-
--- Send grouped webhook
+-- Send one grouped webhook
 local lastSend = 0
 
 local function sendGrouped(detected)
@@ -121,11 +91,11 @@ local function sendGrouped(detected)
     if #detected == 0 then return end
 
     local lines = {}
-    for i, f in ipairs(detected) do
-        table.insert(lines, i .. ". **" .. f.name .. "** - **" .. f.percent .. "%**")
+    for i, entry in ipairs(detected) do
+        table.insert(lines, i .. ". **" .. entry.name .. "** - **" .. entry.percent .. "%**")
     end
 
-    local message = "**High % Fish Detected (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
+    local message = "**Fish ≥ " .. THRESHOLD .. "% (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
 
     SendWebhook({content = message})
 end
@@ -149,13 +119,13 @@ RunService.Heartbeat:Connect(function()
             local child = folder:GetChildren()[i + 1]
             if not child then continue end
 
-            local name, action = getPromptInfo(child)
-            if name and isWantedFish(name) then
-                local value = extractPercentage(name, action)
-                if value then
-                    table.insert(detected, {name = name, percent = value})
+            local name, action = getFishInfo(child)
+            if name then
+                local percent = getPercentage(name, action)
+                if percent then
+                    table.insert(detected, {name = name, percent = percent})
                     if DEBUG then
-                        print("[HIGH] " .. name .. " @ " .. value .. "% (Folder " .. fIdx .. ", idx " .. i .. ")")
+                        print("[DETECT] " .. name .. " @ " .. percent .. "% (F" .. fIdx .. ", idx " .. i .. ")")
                     end
                 end
             end
@@ -164,7 +134,7 @@ RunService.Heartbeat:Connect(function()
 
     sendGrouped(detected)
 
-    if DEBUG then print("[SCAN END] Found " .. #detected .. " matching fish ≥ " .. THRESHOLD .. "%") end
+    if DEBUG then print("[SCAN END] Found " .. #detected .. " fish ≥ " .. THRESHOLD .. "%") end
 end)
 
-print("[FishScanner] Active - only wanted fish - indices 0–" .. MAX_INDEX .. " - ≥ " .. THRESHOLD .. "%")
+print("[FishScanner] Running - threshold ≥ " .. THRESHOLD .. "% - indices 0–" .. MAX_INDEX)
