@@ -1,15 +1,17 @@
--- AutoFish Exploit Notifier - GROUPED WEBHOOK VERSION
--- Collects ALL high % fish in one scan, sends ONE combined webhook
+-- AutoFish Exploit Notifier - HIGH ACCURACY VERSION
+-- Groups all >= threshold fish, sends ONE webhook per scan cycle
 
 local RunService = game:GetService("RunService")
-local HttpService = game:GetService("HttpService")  -- only for JSONEncode
+local HttpService = game:GetService("HttpService")
 
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
-local THRESHOLD = 50       -- change to 200+ when ready
+local THRESHOLD = 50
+local SCAN_INTERVAL = 90      -- seconds
+local REPORT_COOLDOWN = 300   -- 5 min - only re-report same fish if % changed significantly
+local SIGNIFICANT_CHANGE = 5  -- only re-report if % changed by this much
+
 local DEBUG = true
-local SCAN_INTERVAL = 90   -- seconds between scans
-local COOLDOWN = 30        -- extra safety between sends
 
 -- Folders
 local fpp = workspace:WaitForChild("FrameWork_WorkSpace", 10)
@@ -19,7 +21,7 @@ local folder1 = fpp:WaitForChild("Folder1", 5)
 local folder2 = fpp:WaitForChild("Folder2", 5)
 local folder3 = fpp:WaitForChild("Folder3", 5)
 
--- Your specific fish positions
+-- Your fish list
 local fishRefs = {
     {part = folder1 and folder1:GetChildren()[24], name = "SCP-300 Rightest"},
     {part = folder1 and folder1:GetChildren()[44], name = "SCP-300 Middle"},
@@ -54,14 +56,12 @@ local fishRefs = {
     {part = folder1 and folder1:GetChildren()[21], name = "Sea Reaper Rightest"},
     {part = folder1 and folder1:GetChildren()[20], name = "Sea Reaper Middle"},
     {part = folder1 and folder1:GetChildren()[11], name = "Sea Reaper Leftest"},
-    -- Folder2
     {part = folder2 and folder2:GetChildren()[36], name = "Julia Beast (middle) Rightest"},
     {part = folder2 and folder2:GetChildren()[26], name = "Julia Beast (middle) Middle"},
     {part = folder2 and folder2:GetChildren()[35], name = "Julia Beast (middle) Leftest"},
     {part = folder2 and folder2:GetChildren()[30], name = "Megalodon Leftest"},
     {part = folder2 and folder2:GetChildren()[8],  name = "Megalodon Rightest"},
     {part = folder2 and folder2:GetChildren()[7],  name = "Megalodon Middle"},
-    -- Folder3
     {part = folder3 and folder3:GetChildren()[69], name = "Sea Eater Rightest"},
     {part = folder3 and folder3:GetChildren()[68], name = "Sea Eater Middle"},
     {part = folder3 and folder3:GetChildren()[67], name = "Sea Eater Leftest"},
@@ -76,57 +76,65 @@ local fishRefs = {
     {part = folder3 and folder3:GetChildren()[55], name = "Shark Boy Rightest"},
 }
 
-print("[FishScanner] Loaded " .. #fishRefs .. " positions - scanning every " .. SCAN_INTERVAL .. " seconds")
+-- Track last reported % per fish to avoid spam
+local lastReported = {}
 
 -- Get text from ProximityPrompt
 local function getPromptText(fishPart)
     if not fishPart then return nil end
-
     local prompt = fishPart:FindFirstChild("PPPart_PP")
     if not prompt or not prompt:IsA("ProximityPrompt") then return nil end
 
-    local objText = prompt.ObjectText or ""
-    local actText = prompt.ActionText or ""
-    return objText .. " " .. actText
+    local obj = prompt.ObjectText or ""
+    local act = prompt.ActionText or ""
+    return (obj .. " " .. act):gsub("%s+", " ")
 end
 
--- Parse percentage
+-- Improved percentage extraction
 local function extractPercentage(text)
     if not text or text == "" then return nil end
 
-    local clean = text:lower():gsub("%s+", "")
+    local clean = text:lower()
+    -- More accurate patterns
     local patterns = {
-        "(%d+%.?%d*)%%",
-        "(%d+)%%",
-        "(%d+%.?%d*)percent",
-        "(%d+)"
+        "(%d+%.?%d*)%%",               -- 123.4%
+        "(%d+) ?%%",                   -- 300 %
+        "(%d+%.?%d*) ?percent",        -- 123.45 percent
+        "%%(%d+%.?%d*)",               -- %123
+        "(%d+) ?%s*%%"                 -- 420 %
     }
 
     for _, pat in ipairs(patterns) do
         local numStr = clean:match(pat)
         if numStr then
             local v = tonumber(numStr)
-            if v and v >= THRESHOLD then return v end
+            if v and v >= THRESHOLD then
+                if DEBUG then print("[PARSE] Found " .. v .. "% from: " .. text) end
+                return v
+            end
         end
     end
 
+    if DEBUG then print("[PARSE FAIL] No valid % in: " .. text) end
     return nil
 end
 
--- Send one combined webhook
+-- Send one grouped webhook
 local lastSend = 0
 
-local function sendCombinedWebhook(highFishes)
+local function sendGroupedWebhook(detected)
     local now = tick()
     if now - lastSend < COOLDOWN then return end
     lastSend = now
 
-    if #highFishes == 0 then return end
+    if #detected == 0 then return end
 
-    local message = "**High % Fish Detected (" .. #highFishes .. " total):**\n"
-    for i, fish in ipairs(highFishes) do
-        message = message .. i .. ". **" .. fish.name .. "** - " .. fish.percent .. "%\n"
+    local lines = {}
+    for _, fish in ipairs(detected) do
+        table.insert(lines, "**" .. fish.name .. "** - " .. fish.percent .. "%")
     end
+
+    local message = "**High-Value Fish Detected (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
 
     local payload = { content = message }
 
@@ -140,13 +148,13 @@ local function sendCombinedWebhook(highFishes)
     end)
 
     if success then
-        print("[WEBHOOK] Sent combined list! Status: " .. (response.StatusCode or "no code"))
+        print("[WEBHOOK] Grouped message sent! Status: " .. (response.StatusCode or "no code"))
     else
         warn("[WEBHOOK] Failed: " .. tostring(response))
     end
 end
 
--- Scan loop (every SCAN_INTERVAL seconds)
+-- Scan loop
 local lastScan = 0
 
 RunService.Heartbeat:Connect(function()
@@ -154,9 +162,10 @@ RunService.Heartbeat:Connect(function()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
 
-    if DEBUG then print("[SCAN START] Checking all fish...") end
+    if DEBUG then print("[SCAN] Starting full check...") end
 
-    local highFishes = {}
+    local detected = {}
+    local thisScanReported = {}
 
     for _, entry in ipairs(fishRefs) do
         local part = entry.part
@@ -166,17 +175,32 @@ RunService.Heartbeat:Connect(function()
         if text then
             local value = extractPercentage(text)
             if value then
-                table.insert(highFishes, {name = entry.name, percent = value})
-                if DEBUG then
-                    print("[HIGH] " .. entry.name .. " at " .. value .. "%")
+                local key = entry.name .. "_" .. value
+
+                -- Check if we already reported this exact % recently
+                local lastVal = lastReported[entry.name] or 0
+                if value >= lastVal + SIGNIFICANT_CHANGE or value > lastVal + 10 then
+                    table.insert(detected, {name = entry.name, percent = value})
+                    thisScanReported[entry.name] = value
+
+                    if DEBUG then
+                        print("[FOUND] " .. entry.name .. " @ " .. value .. "% (was " .. lastVal .. "%)")
+                    end
+                elseif DEBUG then
+                    print("[SKIP] " .. entry.name .. " @ " .. value .. "% (no significant change)")
                 end
             end
         end
     end
 
-    sendCombinedWebhook(highFishes)
+    -- Update tracking
+    for name, val in pairs(thisScanReported) do
+        lastReported[name] = val
+    end
 
-    if DEBUG then print("[SCAN END] Found " .. #highFishes .. " high % fish - next scan in " .. SCAN_INTERVAL .. "s") end
+    sendGroupedWebhook(detected)
+
+    if DEBUG then print("[SCAN] Finished - found " .. #detected .. " qualifying fish") end
 end)
 
-print("[FishScanner] Active - grouped webhook mode - scanning every " .. SCAN_INTERVAL .. " seconds")
+print("[FishScanner] Started - grouped reporting - scans every " .. SCAN_INTERVAL .. "s")
