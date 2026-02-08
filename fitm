@@ -1,4 +1,4 @@
--- AutoFish Notifier - SAFE VERSION - nil-safe concatenation & logging
+-- AutoFish Notifier - NIL-SAFE VERSION - no concatenation crash
 -- Only your 17 positions in FishPPPart - ≥50%
 
 local RunService = game:GetService("RunService")
@@ -48,13 +48,15 @@ print("[INIT] Loaded " .. #positions .. " target positions")
 -- Get prompt info
 local function getPromptInfo(part)
     if not part then
-        print("[SKIP] Part nil")
+        print("[SKIP] Part is nil")
         return nil, nil
     end
 
+    print("[CHECK PART] " .. tostring(part:GetFullName()))
+
     local prompt = part:FindFirstChild("PPPart_PP")
     if not prompt then
-        print("[SKIP] No PPPart_PP in " .. part:GetFullName())
+        print("[SKIP] No PPPart_PP")
         return nil, nil
     end
 
@@ -66,7 +68,7 @@ local function getPromptInfo(part)
     local name = prompt.ObjectText or "Unknown"
     local action = prompt.ActionText or ""
 
-    print("[PROMPT] " .. part:GetFullName())
+    print("[PROMPT FOUND]")
     print("   ObjectText: '" .. tostring(name) .. "'")
     print("   ActionText: '" .. tostring(action) .. "'")
 
@@ -75,11 +77,13 @@ end
 
 -- Percentage
 local function extractPercentage(name, action)
-    local text = tostring(name or "") .. " " .. tostring(action or "")
-    if text == "" then
+    local text = tostring(name or "nil") .. " " .. tostring(action or "nil")
+    if text == "nil nil" then
         print("[PARSE] Empty text")
         return nil
     end
+
+    print("[PARSE] Text: " .. text:sub(1, 100))
 
     local clean = text:lower():gsub("%s+", "")
     local patterns = {
@@ -93,9 +97,14 @@ local function extractPercentage(name, action)
         local numStr = clean:match(pat)
         if numStr then
             local v = tonumber(numStr)
-            if v and v >= THRESHOLD then
-                print("[PARSE] Found " .. v .. "%")
-                return v
+            if v then
+                print("[PARSE] Matched '" .. pat .. "' → " .. v)
+                if v >= THRESHOLD then
+                    print("[ACCEPT] " .. v .. "%")
+                    return v
+                else
+                    print("[REJECT] " .. v .. "% < " .. THRESHOLD)
+                end
             end
         end
     end
@@ -137,8 +146,9 @@ local function sendGrouped(detected)
 
     local lines = {}
     for i, f in ipairs(detected) do
-        local line = i .. ". **" .. tostring(f.name or "Unknown") .. "** - **" .. tostring(f.percent or 0) .. "%**"
-        table.insert(lines, line)
+        local nameStr = tostring(f.name or "nil")
+        local percentStr = tostring(f.percent or "nil")
+        table.insert(lines, i .. ". **" .. nameStr .. "** - **" .. percentStr .. "%**")
     end
 
     local message = "**High % Fish Detected (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
@@ -146,7 +156,7 @@ local function sendGrouped(detected)
     SendWebhook({content = message})
 end
 
--- Scan
+-- Scan loop
 local lastScan = 0
 
 RunService.Heartbeat:Connect(function()
@@ -159,17 +169,17 @@ RunService.Heartbeat:Connect(function()
     local detected = {}
 
     for _, entry in ipairs(positions) do
-        local folder = folders[entry.folderIdx]
+        local folder = folders[entry.folder]
         if not folder then
-            print("[SKIP] Folder" .. entry.folderIdx .. " missing for " .. entry.label)
+            print("[SKIP] Folder" .. entry.folder .. " missing for " .. (entry.label or "nil"))
             continue
         end
 
         local part = nil
         if entry.index then
             local children = folder:GetChildren()
-            if not children or type(children) ~= "table" then
-                print("[NIL] GetChildren() nil in Folder" .. entry.folderIdx)
+            if not children then
+                print("[NIL] GetChildren() nil in Folder" .. entry.folder)
                 continue
             end
             if #children < entry.index + 1 then
@@ -192,7 +202,7 @@ RunService.Heartbeat:Connect(function()
             if percent then
                 table.insert(detected, {name = name, percent = percent})
                 if DEBUG then
-                    print("[DETECT] " .. tostring(name) .. " @ " .. percent .. "% - " .. entry.label)
+                    print("[DETECT] " .. tostring(name) .. " @ " .. tostring(percent) .. "% - " .. tostring(entry.label or "nil"))
                 end
             end
         end
