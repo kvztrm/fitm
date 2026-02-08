@@ -1,5 +1,5 @@
--- AutoFish Notifier - Only your exact fish list, full index scan (0-150), ≥50%
--- Groups all matching fish into one webhook (splits if too long)
+-- AutoFish Notifier - ONLY the exact fish positions you listed
+-- Groups detected fish ≥50% into one webhook
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
@@ -7,7 +7,6 @@ local HttpService = game:GetService("HttpService")
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
 local THRESHOLD = 50
-local MAX_INDEX = 150
 local SCAN_INTERVAL = 90   -- seconds
 local DEBUG = true
 
@@ -19,56 +18,50 @@ local folder1 = fpp:WaitForChild("Folder1", 5)
 local folder2 = fpp:WaitForChild("Folder2", 5)
 local folder3 = fpp:WaitForChild("Folder3", 5)
 
-local folders = {folder1, folder2, folder3}
-
--- Your exact fish names (case-insensitive partial match)
-local wantedFish = {
-    "sea dweller",
-    "scp3000", "scp-300", "scp 300", "scp300",
-    "plesiosaurus",
-    "hammerhead shark", "hammerhead",
-    "bloop",
-    "el gran maja", "gran maja",
-    "julia beast",
-    "ningen",
-    "megalodon",
-    "zombie fish",
-    "sea eater",
-    "bone shark", "boneshark",
-    "shark girl",
-    "shark boy",
-    "king squid",
-    "sea reaper"
+-- Your exact listed fish positions + labels
+local fishPositions = {
+    -- Folder1
+    {part = folder1 and folder1:GetChildren()[8],  label = "Gran Maja"},
+    {part = folder1 and folder1["\229\177\149\229\143\176"], label = "Hammerhead"},
+    {part = folder1 and folder1:GetChildren()[14], label = "Sea Dweller"},
+    {part = folder1 and folder1:GetChildren()[12], label = "Zombie Fish"},
+    {part = folder1 and folder1:GetChildren()[10], label = "King Squid"},
+    {part = folder1 and folder1:GetChildren()[15], label = "Sea Reaper"},
+    {part = folder1 and folder1:GetChildren()[7],  label = "BLOOP"},
+    {part = folder1 and folder1:GetChildren()[6],  label = "Julia Beast"},
+    {part = folder1 and folder1:GetChildren()[5],  label = "Ningen"},
+    {part = folder1 and folder1:GetChildren()[3],  label = "Plesiosaurus"},
+    {part = folder1 and folder1["\229\177\149\229\143\1761"], label = "SCP3000"},
+    
+    -- Folder2
+    {part = folder2 and folder2:GetChildren()[6],  label = "Megalodon"},
+    {part = folder2 and folder2["\230\158\182\229\173\144"], label = "Julia Beast"},
+    
+    -- Folder3
+    {part = folder3 and folder3:GetChildren()[22], label = "Shark Girl"},
+    {part = folder3 and folder3:GetChildren()[21], label = "Shark Boy"},
+    {part = folder3 and folder3:GetChildren()[19], label = "Bone Shark"},
+    {part = folder3 and folder3:GetChildren()[18], label = "Sea Eater"},
 }
 
--- Check if name matches any wanted fish (case-insensitive)
-local function isWantedFish(name)
-    if not name then return false end
-    local lower = name:lower()
-    for _, w in ipairs(wantedFish) do
-        if lower:find(w, 1, true) then
-            return true
-        end
-    end
-    return false
-end
+print("[FishScanner] Loaded " .. #fishPositions .. " specific fish positions")
 
--- Get name and action text from prompt
-local function getFishInfo(part)
-    if not part then return nil, nil end
+-- Get text from ProximityPrompt
+local function getPromptText(fishPart)
+    if not fishPart then return nil, nil end
 
-    local prompt = part:FindFirstChild("PPPart_PP")
+    local prompt = fishPart:FindFirstChild("PPPart_PP")
     if not prompt or not prompt:IsA("ProximityPrompt") then return nil, nil end
 
-    local name = prompt.ObjectText or "Unknown Fish"
-    local action = prompt.ActionText or ""
+    local objText = prompt.ObjectText or ""
+    local actText = prompt.ActionText or ""
 
-    return name, action
+    return objText, actText
 end
 
 -- Extract percentage
-local function getPercentage(name, action)
-    local text = (name or "") .. " " .. (action or "")
+local function extractPercentage(objText, actText)
+    local text = (objText or "") .. " " .. (actText or "")
     if text == "" then return nil end
 
     local clean = text:lower():gsub("%s+", "")
@@ -111,7 +104,7 @@ local function SendWebhook(payload)
     end
 end
 
--- Send grouped webhook (with split if too long)
+-- Send one grouped webhook
 local lastSend = 0
 
 local function sendGrouped(detected)
@@ -121,38 +114,14 @@ local function sendGrouped(detected)
 
     if #detected == 0 then return end
 
-    -- Sort by highest %
-    table.sort(detected, function(a, b) return a.percent > b.percent end)
-
-    local maxPerMsg = 20  -- safe limit to avoid 2000 char error
-    local chunks = {}
-
-    for i = 1, #detected, maxPerMsg do
-        local chunk = {}
-        for j = i, math.min(i + maxPerMsg - 1, #detected) do
-            table.insert(chunk, detected[j])
-        end
-        table.insert(chunks, chunk)
+    local lines = {}
+    for i, f in ipairs(detected) do
+        table.insert(lines, i .. ". **" .. f.name .. "** - **" .. f.percent .. "%**")
     end
 
-    for chunkIdx, chunk in ipairs(chunks) do
-        local lines = {}
-        for i, f in ipairs(chunk) do
-            table.insert(lines, i .. ". **" .. f.name .. "** - **" .. f.percent .. "%**")
-        end
+    local message = "**High % Fish Detected (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
 
-        local header = "**Fish ≥ " .. THRESHOLD .. "% (" .. #detected .. " total"
-        if #chunks > 1 then
-            header = header .. " - Part " .. chunkIdx .. "/" .. #chunks
-        end
-        header = header .. "):**\n"
-
-        local message = header .. table.concat(lines, "\n")
-
-        SendWebhook({content = message})
-
-        task.wait(1.5)  -- avoid rate limit
-    end
+    SendWebhook({content = message})
 end
 
 -- Scan loop
@@ -163,25 +132,23 @@ RunService.Heartbeat:Connect(function()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
 
-    if DEBUG then print("[SCAN START] Checking 0–" .. MAX_INDEX .. "...") end
+    if DEBUG then print("[SCAN START] Checking your specific fish positions...") end
 
     local detected = {}
 
-    for fIdx, folder in ipairs(folders) do
-        if not folder then continue end
+    for _, entry in ipairs(fishPositions) do
+        local part = entry.part
+        if not part then continue end
 
-        for i = 0, MAX_INDEX do
-            local child = folder:GetChildren()[i + 1]
-            if not child then continue end
-
-            local name, action = getFishInfo(child)
-            if name and isWantedFish(name) then
-                local percent = getPercentage(name, action)
-                if percent then
-                    table.insert(detected, {name = name, percent = percent})
-                    if DEBUG then
-                        print("[HIGH] " .. name .. " @ " .. percent .. "% (F" .. fIdx .. ", idx " .. i .. ")")
-                    end
+        local name, action = getPromptText(part)
+        if name then
+            local percent = extractPercentage(name, action)
+            if percent then
+                -- Use real name from prompt if available, fallback to your label
+                local displayName = name ~= "" and name or entry.label
+                table.insert(detected, {name = displayName, percent = percent})
+                if DEBUG then
+                    print("[DETECT] " .. displayName .. " @ " .. percent .. "%")
                 end
             end
         end
@@ -189,7 +156,7 @@ RunService.Heartbeat:Connect(function()
 
     sendGrouped(detected)
 
-    if DEBUG then print("[SCAN END] Found " .. #detected .. " matching fish ≥ " .. THRESHOLD .. "%") end
+    if DEBUG then print("[SCAN END] Found " .. #detected .. " fish ≥ " .. THRESHOLD .. "%") end
 end)
 
-print("[FishScanner] Active - only your fish list - ≥ " .. THRESHOLD .. "% - indices 0–" .. MAX_INDEX)
+print("[FishScanner] Active - only your listed fish positions - threshold ≥ " .. THRESHOLD .. "%")
