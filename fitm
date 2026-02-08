@@ -1,42 +1,40 @@
--- AutoFish Notifier - Scans indices 0 to 150 in Folder1, Folder2, Folder3
--- Groups all detected fish into one webhook message
+-- AutoFish Scanner - Indices 0 to 150 in Folder1/2/3 - Grouped Webhook
+-- Full rewrite - no fixed names, pure index-based scan
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
-local THRESHOLD = 0        -- reports any detected number (0 and up)
+local THRESHOLD = 0        -- report any number found (0 and up)
 local MAX_INDEX = 150
-local SCAN_INTERVAL = 90   -- seconds between full scans
+local SCAN_INTERVAL = 90   -- seconds
 local DEBUG = true
 
 -- Folders
 local fpp = workspace:WaitForChild("FrameWork_WorkSpace", 10)
     :WaitForChild("FishPPPart", 5)
 
-local folder1 = fpp:WaitForChild("Folder1", 5)
-local folder2 = fpp:WaitForChild("Folder2", 5)
-local folder3 = fpp:WaitForChild("Folder3", 5)
+local folders = {
+    Folder1 = fpp:WaitForChild("Folder1", 5),
+    Folder2 = fpp:WaitForChild("Folder2", 5),
+    Folder3 = fpp:WaitForChild("Folder3", 5)
+}
 
-local folders = {folder1, folder2, folder3}
+print("[Scanner] Ready - will check indices 0–" .. MAX_INDEX .. " in each folder every " .. SCAN_INTERVAL .. "s")
 
-print("[FishScanner] Will scan indices 0 to " .. MAX_INDEX .. " in each folder")
-
--- Get text from ProximityPrompt
-local function getPromptText(part)
+-- Get text from PPPart_PP
+local function readPrompt(part)
     if not part then return nil end
 
     local prompt = part:FindFirstChild("PPPart_PP")
     if not prompt or not prompt:IsA("ProximityPrompt") then return nil end
 
-    local obj = prompt.ObjectText or ""
-    local act = prompt.ActionText or ""
-    return obj .. " " .. act
+    return (prompt.ObjectText or "") .. " " .. (prompt.ActionText or "")
 end
 
--- Extract any number (percentage or raw)
-local function extractNumber(text)
+-- Extract first valid number
+local function getNumber(text)
     if not text or text == "" then return nil end
 
     local clean = text:lower():gsub("%s+", "")
@@ -45,62 +43,43 @@ local function extractNumber(text)
         "(%d+)%%",
         "(%d+%.?%d*) ?percent",
         "%%(%d+)",
-        "(%d+)"   -- any number
+        "(%d+)"
     }
 
     for _, pat in ipairs(patterns) do
-        local numStr = clean:match(pat)
-        if numStr then
-            local v = tonumber(numStr)
-            if v and v >= THRESHOLD then return v end
+        local match = clean:match(pat)
+        if match then
+            local num = tonumber(match)
+            if num and num >= THRESHOLD then
+                return num
+            end
         end
     end
 
     return nil
 end
 
--- WeAreDevs style webhook sender
-local function SendWebhook(payload)
-    local headers = {["Content-Type"] = "application/json"}
-    local body = HttpService:JSONEncode(payload)
+-- Send webhook (WeAreDevs style)
+local function sendWebhook(message)
+    local payload = { content = message }
 
-    local success, response = pcall(function()
+    local success, resp = pcall(function()
         return request({
             Url = WEBHOOK_URL,
             Method = "POST",
-            Headers = headers,
-            Body = body
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(payload)
         })
     end)
 
     if success then
-        print("[WEBHOOK] Sent! Status: " .. (response.StatusCode or "no code"))
+        print("[WEBHOOK OK] Status: " .. (resp.StatusCode or "unknown"))
     else
-        warn("[WEBHOOK] Failed: " .. tostring(response))
+        warn("[WEBHOOK ERROR] " .. tostring(resp))
     end
 end
 
--- Send one combined message
-local lastSend = 0
-
-local function sendCombined(detected)
-    local now = tick()
-    if now - lastSend < 30 then return end
-    lastSend = now
-
-    if #detected == 0 then return end
-
-    local lines = {}
-    for i, entry in ipairs(detected) do
-        table.insert(lines, i .. ". **" .. entry.name .. "** - **" .. entry.value .. "**")
-    end
-
-    local message = "**Detected Fish (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
-
-    SendWebhook({content = message})
-end
-
--- Scan loop
+-- Main scan
 local lastScan = 0
 
 RunService.Heartbeat:Connect(function()
@@ -108,34 +87,55 @@ RunService.Heartbeat:Connect(function()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
 
-    if DEBUG then print("[SCAN START] Indices 0–" .. MAX_INDEX .. " in all folders") end
+    if DEBUG then print("[SCAN] Starting full index check...") end
 
-    local detected = {}
+    local found = {}
 
-    for folderIndex, folder in ipairs(folders) do
-        if not folder then continue end
+    for folderName, folder in pairs(folders) do
+        if not folder then
+            if DEBUG then print("[SKIP] " .. folderName .. " missing") end
+            continue
+        end
 
         for i = 0, MAX_INDEX do
-            local child = folder:GetChildren()[i + 1]  -- Lua tables are 1-based
+            local child = folder:GetChildren()[i + 1]  -- Lua 1-based
             if not child then continue end
 
-            local text = getPromptText(child)
+            local text = readPrompt(child)
             if text then
-                local value = extractNumber(text)
-                if value then
-                    local name = child.Name or ("Index " .. i .. " - Folder" .. folderIndex)
-                    table.insert(detected, {name = name, value = value})
+                local num = getNumber(text)
+                if num then
+                    local entry = {
+                        folder = folderName,
+                        index = i,
+                        partName = child.Name or "Index " .. i,
+                        value = num
+                    }
+                    table.insert(found, entry)
+
                     if DEBUG then
-                        print("[DETECT] Folder" .. folderIndex .. " Index " .. i .. " → " .. value .. " (" .. name .. ")")
+                        print(string.format("[FOUND] %s → Index %d → %s = %d", folderName, i, entry.partName, num))
                     end
                 end
             end
         end
     end
 
-    sendCombined(detected)
+    if #found > 0 then
+        local lines = {}
+        for i, f in ipairs(found) do
+            table.insert(lines, string.format("%d. **%s** (Folder %s, Index %d) - **%d**", 
+                i, f.partName, f.folder, f.index, f.value))
+        end
 
-    if DEBUG then print("[SCAN END] Detected " .. #detected .. " items - next in " .. SCAN_INTERVAL .. "s") end
+        local msg = "**Fish Detected (" .. #found .. " total):**\n" .. table.concat(lines, "\n")
+
+        sendWebhook(msg)
+    else
+        if DEBUG then print("[SCAN] Nothing found this cycle") end
+    end
+
+    if DEBUG then print("[SCAN] Done - next in " .. SCAN_INTERVAL .. "s") end
 end)
 
-print("[FishScanner] Active - scanning indices 0–" .. MAX_INDEX .. " in Folder1/2/3")
+print("[FishScanner] Running - full 0–" .. MAX_INDEX .. " scan in all folders")
