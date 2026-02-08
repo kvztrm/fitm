@@ -1,14 +1,15 @@
--- AutoFish Exploit Notifier - Scans all fish, collects >=50%, sends ONE webhook with all
--- Uses your working exploit request() webhook method
+-- AutoFish Exploit Notifier - GROUPED WEBHOOK VERSION
+-- Collects ALL high % fish in one scan, sends ONE combined webhook
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")  -- only for JSONEncode
 
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
-local THRESHOLD = 50
+local THRESHOLD = 50       -- change to 200+ when ready
 local DEBUG = true
-local SCAN_INTERVAL = 90   -- seconds between full scans (rate limit safe)
+local SCAN_INTERVAL = 90   -- seconds between scans
+local COOLDOWN = 30        -- extra safety between sends
 
 -- Folders
 local fpp = workspace:WaitForChild("FrameWork_WorkSpace", 10)
@@ -75,7 +76,7 @@ local fishRefs = {
     {part = folder3 and folder3:GetChildren()[55], name = "Shark Boy Rightest"},
 }
 
-print("[FishScanner] Loaded " .. #fishRefs .. " fish positions - scanning every " .. SCAN_INTERVAL .. " seconds")
+print("[FishScanner] Loaded " .. #fishRefs .. " positions - scanning every " .. SCAN_INTERVAL .. " seconds")
 
 -- Get text from ProximityPrompt
 local function getPromptText(fishPart)
@@ -112,19 +113,19 @@ local function extractPercentage(text)
     return nil
 end
 
--- Webhook sender using your working request() method
+-- Send one combined webhook
 local lastSend = 0
 
-local function sendWebhook(highFishes)
+local function sendCombinedWebhook(highFishes)
     local now = tick()
-    if now - lastSend < 30 then return end  -- extra safety
+    if now - lastSend < COOLDOWN then return end
     lastSend = now
 
     if #highFishes == 0 then return end
 
     local message = "**High % Fish Detected (" .. #highFishes .. " total):**\n"
-    for i, entry in ipairs(highFishes) do
-        message = message .. i .. ". **" .. entry.name .. "** - " .. entry.percent .. "%\n"
+    for i, fish in ipairs(highFishes) do
+        message = message .. i .. ". **" .. fish.name .. "** - " .. fish.percent .. "%\n"
     end
 
     local payload = { content = message }
@@ -139,13 +140,13 @@ local function sendWebhook(highFishes)
     end)
 
     if success then
-        print("[WEBHOOK] Sent combined message! Status: " .. (response.StatusCode or "no code"))
+        print("[WEBHOOK] Sent combined list! Status: " .. (response.StatusCode or "no code"))
     else
         warn("[WEBHOOK] Failed: " .. tostring(response))
     end
 end
 
--- Main scan loop (every SCAN_INTERVAL seconds)
+-- Scan loop (every SCAN_INTERVAL seconds)
 local lastScan = 0
 
 RunService.Heartbeat:Connect(function()
@@ -173,13 +174,9 @@ RunService.Heartbeat:Connect(function()
         end
     end
 
-    if #highFishes > 0 then
-        sendWebhook(highFishes)
-    else
-        if DEBUG then print("[SCAN] No high % fish found this time") end
-    end
+    sendCombinedWebhook(highFishes)
 
-    if DEBUG then print("[SCAN END] Next scan in " .. SCAN_INTERVAL .. " seconds") end
+    if DEBUG then print("[SCAN END] Found " .. #highFishes .. " high % fish - next scan in " .. SCAN_INTERVAL .. "s") end
 end)
 
-print("[FishScanner] Active - scanning every " .. SCAN_INTERVAL .. " seconds, sending one webhook with all high % fish")
+print("[FishScanner] Active - grouped webhook mode - scanning every " .. SCAN_INTERVAL .. " seconds")
