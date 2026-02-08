@@ -2,7 +2,7 @@
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
-local THRESHOLD = 50
+local THRESHOLD = 200  -- Changed to 200%
 local SCAN_INTERVAL = 90
 local DEBUG = true
 
@@ -165,9 +165,36 @@ local function getFishInfo(fishModel)
     return name, action, enabled
 end
 
+-- Track last sent fish to prevent duplicate sends
+local lastDetectedFish = {}
+local lastWebhookSend = 0
+local WEBHOOK_COOLDOWN = 60 -- Minimum 60 seconds between webhook sends
+
 -- Send all detected fish as one webhook message
 local function SendCombinedWebhook(detectedFish)
     if #detectedFish == 0 then return end
+    
+    local now = tick()
+    
+    -- Check if we should send (cooldown)
+    if now - lastWebhookSend < WEBHOOK_COOLDOWN then
+        if DEBUG then
+            local remaining = WEBHOOK_COOLDOWN - (now - lastWebhookSend)
+            print("[WEBHOOK] Cooldown active: " .. math.floor(remaining) .. "s remaining")
+        end
+        return
+    end
+    
+    -- Check if this is the same as last time (prevent duplicates)
+    local currentHash = ""
+    for _, fish in ipairs(detectedFish) do
+        currentHash = currentHash .. fish.name .. ":" .. fish.percent .. ";"
+    end
+    
+    if lastDetectedFish.hash == currentHash then
+        if DEBUG then print("[WEBHOOK] Same fish detected, skipping duplicate send") end
+        return
+    end
     
     -- Sort by percentage (highest first)
     table.sort(detectedFish, function(a, b)
@@ -180,12 +207,12 @@ local function SendCombinedWebhook(detectedFish)
         table.insert(lines, i .. ". **" .. fish.name .. "** - **" .. fish.percent .. "%**")
     end
     
-    local message = "**Fish Ready for Collection (" .. #detectedFish .. " total):**\n" .. table.concat(lines, "\n")
+    local message = "**Fish Ready for Collection (" .. #detectedFish .. " total, ≥" .. THRESHOLD .. "%):**\n" .. table.concat(lines, "\n")
     local payload = {content = message}
     local body = HttpService:JSONEncode(payload)
     
     if DEBUG then 
-        print("[WEBHOOK] Sending combined message with " .. #detectedFish .. " fish:")
+        print("\n[WEBHOOK] Sending combined message with " .. #detectedFish .. " fish:")
         for _, fish in ipairs(detectedFish) do
             print("  • " .. fish.name .. " @ " .. fish.percent .. "%")
         end
@@ -198,6 +225,12 @@ local function SendCombinedWebhook(detectedFish)
     
     if success then
         print("[WEBHOOK] ✓ Sent combined message with " .. #detectedFish .. " fish")
+        lastWebhookSend = now
+        lastDetectedFish = {
+            hash = currentHash,
+            time = now,
+            count = #detectedFish
+        }
     else
         warn("[WEBHOOK] ✗ Failed: " .. tostring(response))
         
@@ -213,6 +246,12 @@ local function SendCombinedWebhook(detectedFish)
             end)
             if success2 then
                 print("[WEBHOOK] ✓ Sent via request method")
+                lastWebhookSend = now
+                lastDetectedFish = {
+                    hash = currentHash,
+                    time = now,
+                    count = #detectedFish
+                }
             end
         end
     end
@@ -254,7 +293,7 @@ local function scanFishPPPart()
                 if isWantedFish(name) then
                     wantedCount = wantedCount + 1
                     
-                    -- Extract percentage
+                    -- Extract percentage (now requires ≥ 200%)
                     local percent = extractPercentage(name, action)
                     if percent then
                         -- Add to detected fish list
@@ -269,7 +308,7 @@ local function scanFishPPPart()
                             print("[DETECT] ✓ " .. name .. " @ " .. percent .. "% (Index " .. i .. " in " .. folder.Name .. ")")
                         end
                     elseif DEBUG then
-                        print("[NO-PERCENT] " .. name .. " (no valid percentage)")
+                        print("[NO-PERCENT] " .. name .. " (< " .. THRESHOLD .. "%)")
                     end
                 elseif DEBUG then
                     print("[NOT-WANTED] " .. name .. " (Able enabled but not wanted)")
@@ -284,6 +323,8 @@ local function scanFishPPPart()
     -- Send combined webhook if any fish found
     if #detectedFish > 0 then
         SendCombinedWebhook(detectedFish)
+    else
+        if DEBUG then print("[SCAN] No fish found with Able=true and ≥ " .. THRESHOLD .. "%") end
     end
     
     if DEBUG then
@@ -291,7 +332,7 @@ local function scanFishPPPart()
         print("  Total indices scanned: " .. totalScanned)
         print("  Models with Able=true: " .. enabledCount)
         print("  Wanted fish with Able=true: " .. wantedCount)
-        print("  Fish ready for collection: " .. #detectedFish)
+        print("  Fish ≥ " .. THRESHOLD .. "%: " .. #detectedFish)
         print(string.rep("=", 60))
     end
 end
@@ -319,13 +360,14 @@ print("  • Scanning: FishPPPart.Folder1/2/3")
 print("  • Checking: Attribute 'Able' = true")
 print("  • Threshold: ≥ " .. THRESHOLD .. "%")
 print("  • Scan interval: " .. SCAN_INTERVAL .. " seconds")
+print("  • Webhook cooldown: " .. WEBHOOK_COOLDOWN .. " seconds")
 print("  • Output: Combined webhook message")
 print("  • Wanted fish types: " .. #wantedFishTypes)
 print(string.rep("=", 50))
 
 -- Send startup notification
 wait(2)
-local startupMsg = "**[STARTUP]** FishScanner active! Will send combined updates every " .. SCAN_INTERVAL .. " seconds."
+local startupMsg = "**[STARTUP]** FishScanner active! Threshold: ≥" .. THRESHOLD .. "%. Scans every " .. SCAN_INTERVAL .. "s."
 local payload = {content = startupMsg}
 local body = HttpService:JSONEncode(payload)
 
