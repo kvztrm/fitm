@@ -1,5 +1,5 @@
--- AutoFish Notifier - NIL-SAFE VERSION - no concatenation crash
--- Only your 17 positions in FishPPPart - ≥50%
+-- AutoFish Notifier - MAX DEBUG VERSION - logs EVERYTHING
+-- Only your 17 positions in FishPPPart.Folder1/2/3 - ≥50%
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
@@ -10,80 +10,111 @@ local THRESHOLD = 50
 local SCAN_INTERVAL = 90
 local DEBUG = true
 
--- Fish data folders
-local dataParent = workspace:WaitForChild("FrameWork_WorkSpace", 10)
-    :WaitForChild("FishPPPart", 10)
+-- Debug print helper (safe for nil)
+local function dprint(...)
+    if not DEBUG then return end
+    local args = {...}
+    for i, v in ipairs(args) do
+        args[i] = tostring(v or "<nil>")
+    end
+    print(table.concat(args, " "))
+end
 
-local folders = {
-    dataParent:WaitForChild("Folder1", 10),
-    dataParent:WaitForChild("Folder2", 10),
-    dataParent:WaitForChild("Folder3", 10)
-}
+-- Initialization
+dprint("[INIT] Starting script...")
 
-print("[INIT] Data folders loaded")
+local frameWork = workspace:WaitForChild("FrameWork_WorkSpace", 20)
+if not frameWork then
+    warn("[FATAL] FrameWork_WorkSpace not found after 20s")
+    return
+end
+dprint("[INIT] FrameWork_WorkSpace:", frameWork:GetFullName())
+
+local fishPPPart = frameWork:WaitForChild("FishPPPart", 20)
+if not fishPPPart then
+    warn("[FATAL] FishPPPart not found after 20s")
+    return
+end
+dprint("[INIT] FishPPPart:", fishPPPart:GetFullName())
+
+-- Folders
+local folder1 = fishPPPart:WaitForChild("Folder1", 20)
+local folder2 = fishPPPart:WaitForChild("Folder2", 20)
+local folder3 = fishPPPart:WaitForChild("Folder3", 20)
+
+dprint("[FOLDER] Folder1:", tostring(folder1))
+dprint("[FOLDER] Folder2:", tostring(folder2))
+dprint("[FOLDER] Folder3:", tostring(folder3))
+
+local folders = {}
+if folder1 then table.insert(folders, folder1) end
+if folder2 then table.insert(folders, folder2) end
+if folder3 then table.insert(folders, folder3) end
+
+if #folders == 0 then
+    warn("[FATAL] No FishPPPart folders found")
+    return
+end
+
+dprint("[INIT] Found", #folders, "data folders")
 
 -- Your 17 exact positions
 local positions = {
-    {folder = 1, index = 8,   name = nil, label = "Gran Maja"},
+    {folder = 1, index = 8,   label = "Gran Maja"},
     {folder = 1, index = nil, name = "\229\177\149\229\143\176", label = "Hammerhead"},
-    {folder = 1, index = 14,  name = nil, label = "Sea Dweller"},
-    {folder = 1, index = 12,  name = nil, label = "Zombie Fish"},
-    {folder = 1, index = 10,  name = nil, label = "King Squid"},
-    {folder = 1, index = 15,  name = nil, label = "Sea Reaper"},
-    {folder = 1, index = 7,   name = nil, label = "BLOOP"},
-    {folder = 1, index = 6,   name = nil, label = "Julia Beast"},
-    {folder = 1, index = 5,   name = nil, label = "Ningen"},
-    {folder = 1, index = 3,   name = nil, label = "Plesiosaurus"},
+    {folder = 1, index = 14,  label = "Sea Dweller"},
+    {folder = 1, index = 12,  label = "Zombie Fish"},
+    {folder = 1, index = 10,  label = "King Squid"},
+    {folder = 1, index = 15,  label = "Sea Reaper"},
+    {folder = 1, index = 7,   label = "BLOOP"},
+    {folder = 1, index = 6,   label = "Julia Beast"},
+    {folder = 1, index = 5,   label = "Ningen"},
+    {folder = 1, index = 3,   label = "Plesiosaurus"},
     {folder = 1, index = nil, name = "\229\177\149\229\143\1761", label = "SCP3000"},
-    {folder = 2, index = 6,   name = nil, label = "Megalodon"},
+    {folder = 2, index = 6,   label = "Megalodon"},
     {folder = 2, index = nil, name = "\230\158\182\229\173\144", label = "Julia Beast"},
-    {folder = 3, index = 22,  name = nil, label = "Shark Girl"},
-    {folder = 3, index = 21,  name = nil, label = "Shark Boy"},
-    {folder = 3, index = 19,  name = nil, label = "Bone Shark"},
-    {folder = 3, index = 18,  name = nil, label = "Sea Eater"},
+    {folder = 3, index = 22,  label = "Shark Girl"},
+    {folder = 3, index = 21,  label = "Shark Boy"},
+    {folder = 3, index = 19,  label = "Bone Shark"},
+    {folder = 3, index = 18,  label = "Sea Eater"},
 }
 
-print("[INIT] Loaded " .. #positions .. " target positions")
+dprint("[INIT] Loaded", #positions, "target positions")
 
 -- Get prompt info
 local function getPromptInfo(part)
     if not part then
-        print("[SKIP] Part is nil")
+        dprint("[SKIP] Part is nil")
         return nil, nil
     end
 
-    print("[CHECK PART] " .. tostring(part:GetFullName()))
+    dprint("[CHECK PART]", part:GetFullName())
 
     local prompt = part:FindFirstChild("PPPart_PP")
     if not prompt then
-        print("[SKIP] No PPPart_PP")
+        dprint("[SKIP] No PPPart_PP")
         return nil, nil
     end
 
     if not prompt:IsA("ProximityPrompt") then
-        print("[SKIP] Not ProximityPrompt")
+        dprint("[SKIP] Not ProximityPrompt")
         return nil, nil
     end
 
     local name = prompt.ObjectText or "Unknown"
     local action = prompt.ActionText or ""
 
-    print("[PROMPT FOUND]")
-    print("   ObjectText: '" .. tostring(name) .. "'")
-    print("   ActionText: '" .. tostring(action) .. "'")
+    dprint("[PROMPT FOUND]")
+    dprint("   ObjectText:", tostring(name))
+    dprint("   ActionText:", tostring(action))
 
     return name, action
 end
 
--- Percentage
+-- Percentage extraction
 local function extractPercentage(name, action)
     local text = tostring(name or "nil") .. " " .. tostring(action or "nil")
-    if text == "nil nil" then
-        print("[PARSE] Empty text")
-        return nil
-    end
-
-    print("[PARSE] Text: " .. text:sub(1, 100))
+    dprint("[PARSE] Input text:", text:sub(1, 100))
 
     local clean = text:lower():gsub("%s+", "")
     local patterns = {
@@ -98,18 +129,18 @@ local function extractPercentage(name, action)
         if numStr then
             local v = tonumber(numStr)
             if v then
-                print("[PARSE] Matched '" .. pat .. "' → " .. v)
+                dprint("[PARSE] Matched pattern:", pat, "→", v)
                 if v >= THRESHOLD then
-                    print("[ACCEPT] " .. v .. "%")
+                    dprint("[ACCEPT] Percentage:", v, "%")
                     return v
                 else
-                    print("[REJECT] " .. v .. "% < " .. THRESHOLD)
+                    dprint("[REJECT] Percentage:", v, "% <", THRESHOLD)
                 end
             end
         end
     end
 
-    print("[PARSE] No valid %")
+    dprint("[PARSE] No valid percentage found")
     return nil
 end
 
@@ -118,6 +149,9 @@ local function SendWebhook(payload)
     local headers = {["Content-Type"] = "application/json"}
     local body = HttpService:JSONEncode(payload)
     
+    dprint("[WEBHOOK] Preparing to send payload:")
+    dprint(body)
+
     local success, response = pcall(function()
         return request({
             Url = WEBHOOK_URL,
@@ -128,9 +162,9 @@ local function SendWebhook(payload)
     end)
     
     if success then
-        print("[WEBHOOK] Sent! Status: " .. (response.StatusCode or "no code"))
+        dprint("[WEBHOOK] Sent! Status:", tostring(response.StatusCode or "no code"))
     else
-        warn("[WEBHOOK] Failed: " .. tostring(response))
+        warn("[WEBHOOK] Failed:", tostring(response))
     end
 end
 
@@ -139,10 +173,16 @@ local lastSend = 0
 
 local function sendGrouped(detected)
     local now = tick()
-    if now - lastSend < 30 then return end
+    if now - lastSend < 30 then 
+        dprint("[COOLDOWN] Webhook skipped - too soon")
+        return 
+    end
     lastSend = now
 
-    if #detected == 0 then return end
+    if #detected == 0 then
+        dprint("[SEND] No fish to report")
+        return
+    end
 
     local lines = {}
     for i, f in ipairs(detected) do
@@ -153,6 +193,7 @@ local function sendGrouped(detected)
 
     local message = "**High % Fish Detected (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
 
+    dprint("[SEND] Sending grouped message with " .. #detected .. " fish")
     SendWebhook({content = message})
 end
 
@@ -164,53 +205,65 @@ RunService.Heartbeat:Connect(function()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
 
-    if DEBUG then print("[SCAN START] Checking 17 positions...") end
+    dprint("[SCAN START] Checking 17 positions...")
 
     local detected = {}
 
-    for _, entry in ipairs(positions) do
+    for i, entry in ipairs(positions) do
+        dprint("[POSITION " .. i .. "] " .. tostring(entry.label or "no label"))
+
         local folder = folders[entry.folder]
         if not folder then
-            print("[SKIP] Folder" .. entry.folder .. " missing for " .. (entry.label or "nil"))
+            dprint("[SKIP] Folder " .. entry.folder .. " missing")
             continue
         end
+
+        dprint("[FOLDER OK] " .. folder:GetFullName())
 
         local part = nil
         if entry.index then
             local children = folder:GetChildren()
             if not children then
-                print("[NIL] GetChildren() nil in Folder" .. entry.folder)
+                dprint("[NIL] GetChildren() returned nil in Folder" .. entry.folder)
                 continue
             end
+            dprint("[CHILD COUNT] " .. #children .. " children")
             if #children < entry.index + 1 then
-                print("[SKIP] Index " .. entry.index .. " out of bounds (only " .. #children .. ")")
+                dprint("[SKIP] Index " .. entry.index .. " out of bounds (max " .. #children .. ")")
                 continue
             end
             part = children[entry.index + 1]
         elseif entry.name then
             part = folder:FindFirstChild(entry.name)
             if not part then
-                print("[SKIP] Named part '" .. entry.name .. "' not found")
+                dprint("[SKIP] Named part '" .. tostring(entry.name) .. "' not found")
             end
         end
 
-        if not part then continue end
+        if not part then
+            dprint("[SKIP] Part not found for " .. tostring(entry.label or "no label"))
+            continue
+        end
+
+        dprint("[PART FOUND] " .. part:GetFullName())
 
         local name, action = getPromptInfo(part)
         if name then
             local percent = extractPercentage(name, action)
             if percent then
                 table.insert(detected, {name = name, percent = percent})
-                if DEBUG then
-                    print("[DETECT] " .. tostring(name) .. " @ " .. tostring(percent) .. "% - " .. tostring(entry.label or "nil"))
-                end
+                dprint("[DETECT] " .. tostring(name) .. " @ " .. tostring(percent) .. "% - " .. tostring(entry.label or "no label"))
+            else
+                dprint("[NO %] No valid percentage for " .. tostring(name))
             end
+        else
+            dprint("[NO PROMPT] No valid prompt for position " .. i)
         end
     end
 
     sendGrouped(detected)
 
-    if DEBUG then print("[SCAN END] Found " .. #detected .. " fish") end
+    dprint("[SCAN END] Found " .. #detected .. " fish ≥ " .. THRESHOLD .. "%")
 end)
 
 print("[FishScanner] Active - only 17 positions - ≥ " .. THRESHOLD .. "%")
