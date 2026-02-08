@@ -1,23 +1,30 @@
 -- AutoFish Notifier - Only desired fish types + 3-stud radius check to shelf
 -- Scans FishPPPart.Folder1/2/3, checks proximity to shelves in "\232\180\167\230\158\182"
-
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
-
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
-
 local THRESHOLD = 50
 local SCAN_INTERVAL = 90
 local DEBUG = true
-local SHELF_RADIUS = 3  -- studs
+local SHELF_RADIUS = 3 -- studs
+
+-- Get FrameWork_WorkSpace
+local workspaceFrame = workspace:WaitForChild("FrameWork_WorkSpace", 10)
+if not workspaceFrame then
+    error("FrameWork_WorkSpace not found!")
+end
 
 -- Shelf locations (hangers)
-local shelfParent = workspace:WaitForChild("FrameWork_WorkSpace", 10)
-    :WaitForChild("\232\180\167\230\158\182", 10)
+local shelfParent = workspaceFrame:WaitForChild("\232\180\167\230\158\182", 10)
+if not shelfParent then
+    error("Shelf parent folder not found!")
+end
 
 -- Fish data location
-local dataParent = workspace:WaitForChild("FrameWork_WorkSpace", 10)
-    :WaitForChild("FishPPPart", 10)
+local fishParent = workspaceFrame:WaitForChild("FishPPPart", 10)
+if not fishParent then
+    error("FishPPPart folder not found!")
+end
 
 -- Your desired fish types (case-insensitive partial match)
 local wantedFishTypes = {
@@ -43,7 +50,9 @@ local function isWantedFish(name)
     if not name then return false end
     local lower = name:lower()
     for _, w in ipairs(wantedFishTypes) do
-        if lower:find(w, 1, true) then return true end
+        if lower:find(w:lower(), 1, true) then
+            return true
+        end
     end
     return false
 end
@@ -54,25 +63,41 @@ for _, folderName in ipairs({"Folder1", "Folder2", "Folder3"}) do
     local folder = shelfParent:FindFirstChild(folderName)
     if folder then
         for _, part in ipairs(folder:GetDescendants()) do
-            if part:IsA("BasePart") or part:IsA("Model") then
+            if part:IsA("BasePart") then
                 table.insert(shelfParts, part)
+            elseif part:IsA("Model") and part.PrimaryPart then
+                table.insert(shelfParts, part.PrimaryPart)
             end
         end
+    else
+        warn("[FishScanner] Shelf folder " .. folderName .. " not found!")
+    end
+end
+print("[FishScanner] Found " .. #shelfParts .. " shelf parts for " .. SHELF_RADIUS .. " stud radius check")
+
+-- Get fish folders from FishPPPart
+local fishFolders = {}
+for _, folderName in ipairs({"Folder1", "Folder2", "Folder3"}) do
+    local folder = fishParent:FindFirstChild(folderName)
+    if folder then
+        table.insert(fishFolders, folder)
+        print("[FishScanner] Found fish folder: " .. folderName)
+    else
+        warn("[FishScanner] Fish folder " .. folderName .. " not found!")
     end
 end
 
-print("[FishScanner] Found " .. #shelfParts .. " shelf parts for proximity check")
+if #fishFolders == 0 then
+    error("No fish folders found! Check structure: FrameWork_WorkSpace.FishPPPart.Folder1/2/3")
+end
 
 -- Get prompt info
 local function getPromptInfo(part)
     if not part then return nil, nil end
-
     local prompt = part:FindFirstChild("PPPart_PP")
     if not prompt or not prompt:IsA("ProximityPrompt") then return nil, nil end
-
     local name = prompt.ObjectText or "Unknown Fish"
     local action = prompt.ActionText or ""
-
     return name, action
 end
 
@@ -80,19 +105,17 @@ end
 local function isNearShelf(part)
     if not part or not part:IsA("BasePart") then return false end
     local pos = part.Position
-
     for _, shelf in ipairs(shelfParts) do
-        if shelf:IsA("BasePart") then
-            if (pos - shelf.Position).Magnitude <= SHELF_RADIUS then
-                return true
-            end
-        elseif shelf:IsA("Model") and shelf.PrimaryPart then
-            if (pos - shelf.PrimaryPart.Position).Magnitude <= SHELF_RADIUS then
+        if shelf and shelf:IsA("BasePart") then
+            local distance = (pos - shelf.Position).Magnitude
+            if distance <= SHELF_RADIUS then
+                if DEBUG then
+                    print("[PROXIMITY] Fish at " .. part.Name .. " is " .. string.format("%.2f", distance) .. " studs from shelf")
+                end
                 return true
             end
         end
     end
-
     return false
 end
 
@@ -100,7 +123,6 @@ end
 local function extractPercentage(name, action)
     local text = (name or "") .. " " .. (action or "")
     if text == "" then return nil end
-
     local clean = text:lower():gsub("%s+", "")
     local patterns = {
         "(%d+%.?%d*)%%",
@@ -108,7 +130,6 @@ local function extractPercentage(name, action)
         "(%d+%.?%d*) ?percent",
         "%%(%d+)"
     }
-
     for _, pat in ipairs(patterns) do
         local numStr = clean:match(pat)
         if numStr then
@@ -116,11 +137,10 @@ local function extractPercentage(name, action)
             if v and v >= THRESHOLD then return v end
         end
     end
-
     return nil
 end
 
--- Webhook sender (your original)
+-- Webhook sender
 local function SendWebhook(payload)
     local headers = {["Content-Type"] = "application/json"}
     local body = HttpService:JSONEncode(payload)
@@ -143,64 +163,92 @@ end
 
 -- Grouped webhook
 local lastSend = 0
-
 local function sendGrouped(detected)
     local now = tick()
     if now - lastSend < 30 then return end
     lastSend = now
-
     if #detected == 0 then return end
-
+    
     local lines = {}
     for i, f in ipairs(detected) do
-        table.insert(lines, i .. ". **" .. f.name .. "** - **" .. f.percent .. "%**")
+        table.insert(lines, i .. ". **" .. f.name .. "** - **" .. f.percent .. "%** (near shelf)")
     end
-
-    local message = "**High % Fish Detected (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
-
+    local message = "**High % Fish Detected (" .. #detected .. " total, within " .. SHELF_RADIUS .. " studs of shelves):**\n" .. table.concat(lines, "\n")
+    
     SendWebhook({content = message})
 end
 
--- Scan loop - only scan FishPPPart folders
+-- Scan loop - CRITICAL: Only process fish that pass BOTH conditions:
+-- 1. Is a wanted fish type
+-- 2. Is within 3 studs of any shelf
 local lastScan = 0
-
 RunService.Heartbeat:Connect(function()
     local now = tick()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
-
-    if DEBUG then print("[SCAN START] Scanning FishPPPart folders...") end
-
+    
+    if DEBUG then print("[SCAN START] Scanning " .. #fishFolders .. " fish folders...") end
     local detected = {}
-
-    for folderIdx, folder in ipairs(folders) do
-        if not folder then
-            if DEBUG then print("[SKIP] Folder" .. folderIdx .. " missing") end
-            continue
-        end
-
-        for _, child in ipairs(folder:GetChildren()) do
-            local name, action = getPromptInfo(child)
-            if name and isWantedFish(name) then
-                -- Check if this fish is near a shelf
-                if isNearShelf(child) then
-                    local percent = extractPercentage(name, action)
-                    if percent then
-                        table.insert(detected, {name = name, percent = percent})
-                        if DEBUG then
-                            print("[DETECT] " .. name .. " @ " .. percent .. "% (near shelf)")
-                        end
-                    end
-                else
-                    if DEBUG then print("[SKIP] " .. name .. " not near any shelf") end
+    local scannedCount = 0
+    
+    for folderIdx, folder in ipairs(fishFolders) do
+        if not folder then continue end
+        
+        local children = folder:GetChildren()
+        scannedCount = scannedCount + #children
+        
+        for _, child in ipairs(children) do
+            -- FIRST check: Is it near a shelf?
+            if not isNearShelf(child) then
+                if DEBUG then 
+                    print("[SKIP-PROXIMITY] " .. child.Name .. " is NOT within " .. SHELF_RADIUS .. " studs of any shelf") 
                 end
+                continue  -- Skip this fish entirely if not near shelf
+            end
+            
+            -- SECOND check: Get fish info
+            local name, action = getPromptInfo(child)
+            if not name then
+                if DEBUG then print("[SKIP-NOINFO] No prompt info on " .. child.Name) end
+                continue
+            end
+            
+            -- THIRD check: Is it a wanted fish type?
+            if not isWantedFish(name) then
+                if DEBUG then print("[SKIP-TYPE] " .. name .. " is not in wanted list") end
+                continue
+            end
+            
+            -- FOURTH check: Extract percentage
+            local percent = extractPercentage(name, action)
+            if not percent then
+                if DEBUG then print("[SKIP-PERCENT] " .. name .. " has no valid percentage or < " .. THRESHOLD .. "%") end
+                continue
+            end
+            
+            -- ALL CHECKS PASSED: Add to detected list
+            table.insert(detected, {name = name, percent = percent})
+            if DEBUG then
+                print("[DETECT] ✓ " .. name .. " @ " .. percent .. "% (within " .. SHELF_RADIUS .. " studs of shelf)")
             end
         end
     end
-
-    sendGrouped(detected)
-
-    if DEBUG then print("[SCAN END] Found " .. #detected .. " valid fish ≥ " .. THRESHOLD .. "% on shelves") end
+    
+    if #detected > 0 then
+        sendGrouped(detected)
+    end
+    
+    if DEBUG then 
+        print("[SCAN END] Scanned " .. scannedCount .. " items, found " .. #detected .. " fish meeting ALL criteria:") 
+        print("  • Wanted fish type")
+        print("  • Within " .. SHELF_RADIUS .. " studs of shelf")
+        print("  • ≥ " .. THRESHOLD .. "% completion")
+    end
 end)
 
-print("[FishScanner] Active - only desired fish types near shelves - ≥ " .. THRESHOLD .. "%")
+print("[FishScanner] Active!")
+print("  • Scanning: FrameWork_WorkSpace.FishPPPart.Folder1/2/3")
+print("  • Shelves: FrameWork_WorkSpace['\232\180\167\230\158\182'].Folder1/2/3")
+print("  • Threshold: ≥ " .. THRESHOLD .. "%")
+print("  • Shelf radius: " .. SHELF_RADIUS .. " studs (CRITICAL: Only fish within this range)")
+print("  • Wanted fish types: " .. #wantedFishTypes .. " types")
