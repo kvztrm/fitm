@@ -1,5 +1,5 @@
--- AutoFish Notifier - Full index scan (0-150) in Folder1/2/3
--- Extracts real name + percentage, sends one grouped webhook (split if too long)
+-- AutoFish Notifier - Only your exact fish list, full index scan (0-150), ≥50%
+-- Groups all matching fish into one webhook (splits if too long)
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
@@ -21,27 +21,36 @@ local folder3 = fpp:WaitForChild("Folder3", 5)
 
 local folders = {folder1, folder2, folder3}
 
-print("[FishScanner] Starting - full scan 0–" .. MAX_INDEX .. " in Folder1/2/3")
+-- Your exact fish names (case-insensitive partial match)
+local wantedFish = {
+    "sea dweller",
+    "scp3000", "scp-300", "scp 300", "scp300",
+    "plesiosaurus",
+    "hammerhead shark", "hammerhead",
+    "bloop",
+    "el gran maja", "gran maja",
+    "julia beast",
+    "ningen",
+    "megalodon",
+    "zombie fish",
+    "sea eater",
+    "bone shark", "boneshark",
+    "shark girl",
+    "shark boy",
+    "king squid",
+    "sea reaper"
+}
 
--- Your exact webhook sender function
-local function SendWebhook(payload)
-    local headers = {["Content-Type"] = "application/json"}
-    local body = HttpService:JSONEncode(payload)
-    
-    local success, response = pcall(function()
-        return request({
-            Url = WEBHOOK_URL,
-            Method = "POST",
-            Headers = headers,
-            Body = body
-        })
-    end)
-    
-    if success then
-        print("[WEBHOOK] Sent! Status: " .. (response.StatusCode or "no code"))
-    else
-        warn("[WEBHOOK] Failed: " .. tostring(response))
+-- Check if name matches any wanted fish (case-insensitive)
+local function isWantedFish(name)
+    if not name then return false end
+    local lower = name:lower()
+    for _, w in ipairs(wantedFish) do
+        if lower:find(w, 1, true) then
+            return true
+        end
     end
+    return false
 end
 
 -- Get name and action text from prompt
@@ -81,7 +90,28 @@ local function getPercentage(name, action)
     return nil
 end
 
--- Send grouped webhook (with splitting if too long)
+-- Your exact webhook sender function
+local function SendWebhook(payload)
+    local headers = {["Content-Type"] = "application/json"}
+    local body = HttpService:JSONEncode(payload)
+    
+    local success, response = pcall(function()
+        return request({
+            Url = WEBHOOK_URL,
+            Method = "POST",
+            Headers = headers,
+            Body = body
+        })
+    end)
+    
+    if success then
+        print("[WEBHOOK] Sent! Status: " .. (response.StatusCode or "no code"))
+    else
+        warn("[WEBHOOK] Failed: " .. tostring(response))
+    end
+end
+
+-- Send grouped webhook (with split if too long)
 local lastSend = 0
 
 local function sendGrouped(detected)
@@ -91,15 +121,15 @@ local function sendGrouped(detected)
 
     if #detected == 0 then return end
 
-    -- Sort by highest % (optional)
+    -- Sort by highest %
     table.sort(detected, function(a, b) return a.percent > b.percent end)
 
-    local chunkSize = 20  -- safe number to stay under 2000 chars
+    local maxPerMsg = 20  -- safe limit to avoid 2000 char error
     local chunks = {}
 
-    for i = 1, #detected, chunkSize do
+    for i = 1, #detected, maxPerMsg do
         local chunk = {}
-        for j = i, math.min(i + chunkSize - 1, #detected) do
+        for j = i, math.min(i + maxPerMsg - 1, #detected) do
             table.insert(chunk, detected[j])
         end
         table.insert(chunks, chunk)
@@ -119,15 +149,13 @@ local function sendGrouped(detected)
 
         local message = header .. table.concat(lines, "\n")
 
-        -- Send this chunk
         SendWebhook({content = message})
 
-        -- Small delay between messages
-        task.wait(1.5)
+        task.wait(1.5)  -- avoid rate limit
     end
 end
 
--- Scan loop - checks 0 to 150 in each folder
+-- Scan loop
 local lastScan = 0
 
 RunService.Heartbeat:Connect(function()
@@ -147,12 +175,12 @@ RunService.Heartbeat:Connect(function()
             if not child then continue end
 
             local name, action = getFishInfo(child)
-            if name then
+            if name and isWantedFish(name) then
                 local percent = getPercentage(name, action)
                 if percent then
                     table.insert(detected, {name = name, percent = percent})
                     if DEBUG then
-                        print("[DETECT] " .. name .. " @ " .. percent .. "% (Folder " .. fIdx .. ", idx " .. i .. ")")
+                        print("[HIGH] " .. name .. " @ " .. percent .. "% (F" .. fIdx .. ", idx " .. i .. ")")
                     end
                 end
             end
@@ -161,7 +189,7 @@ RunService.Heartbeat:Connect(function()
 
     sendGrouped(detected)
 
-    if DEBUG then print("[SCAN END] Detected " .. #detected .. " fish ≥ " .. THRESHOLD .. "%") end
+    if DEBUG then print("[SCAN END] Found " .. #detected .. " matching fish ≥ " .. THRESHOLD .. "%") end
 end)
 
-print("[FishScanner] Running - full index scan - ≥ " .. THRESHOLD .. "%")
+print("[FishScanner] Active - only your fish list - ≥ " .. THRESHOLD .. "% - indices 0–" .. MAX_INDEX)
