@@ -1,4 +1,4 @@
--- AutoFish Notifier - Scan FishPPPart indices 0-150 for enabled "able" property
+-- AutoFish Notifier - Scan FishPPPart indices 0-150 for "Able" attribute
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
@@ -87,59 +87,59 @@ local function extractPercentage(name, action)
     return nil
 end
 
--- Check if fish has "able" property enabled
+-- Check if fish has "Able" attribute enabled (capital A)
 local function isAbleEnabled(fishModel)
     if not fishModel then return false end
     
-    -- Check for "able" child object
-    local ableChild = fishModel:FindFirstChild("able")
-    if ableChild then
-        -- Check if it's a BasePart with visible properties
-        if ableChild:IsA("BasePart") then
-            -- Check transparency and can collide
-            if ableChild.Transparency < 1 or ableChild.CanCollide then
-                return true
-            end
-        -- Check if it's a BoolValue
-        elseif ableChild:IsA("BoolValue") then
-            return ableChild.Value == true
-        -- Check if it's a StringValue with "true" or "1"
-        elseif ableChild:IsA("StringValue") then
-            local val = ableChild.Value:lower()
-            return val == "true" or val == "1" or val == "enabled"
-        -- Check if it's a NumberValue
-        elseif ableChild:IsA("NumberValue") then
-            return ableChild.Value > 0
-        end
-    end
-    
-    -- Check attributes
-    local ableAttr = fishModel:GetAttribute("able")
+    -- Check for "Able" attribute (capital A)
+    local ableAttr = fishModel:GetAttribute("Able")
     if ableAttr ~= nil then
         if type(ableAttr) == "boolean" then
-            return ableAttr
+            return ableAttr == true
         elseif type(ableAttr) == "string" then
             local val = ableAttr:lower()
-            return val == "true" or val == "1" or val == "enabled"
+            return val == "true" or val == "1" or val == "enabled" or val == "yes"
         elseif type(ableAttr) == "number" then
             return ableAttr > 0
         end
     end
     
-    -- Check if model itself has enabled/visible properties
-    if fishModel:IsA("Model") then
-        -- Check if PrimaryPart is visible
-        if fishModel.PrimaryPart then
-            if fishModel.PrimaryPart.Transparency < 1 then
-                return true
-            end
+    -- Also check lowercase "able" just in case
+    local ableAttrLower = fishModel:GetAttribute("able")
+    if ableAttrLower ~= nil then
+        if type(ableAttrLower) == "boolean" then
+            return ableAttrLower == true
+        elseif type(ableAttrLower) == "string" then
+            local val = ableAttrLower:lower()
+            return val == "true" or val == "1" or val == "enabled" or val == "yes"
+        elseif type(ableAttrLower) == "number" then
+            return ableAttrLower > 0
         end
-        
-        -- Check if any part is visible
-        for _, child in ipairs(fishModel:GetDescendants()) do
-            if child:IsA("BasePart") and child.Transparency < 1 then
-                return true
-            end
+    end
+    
+    -- Check for "able" child object (backward compatibility)
+    local ableChild = fishModel:FindFirstChild("able")
+    if ableChild then
+        if ableChild:IsA("BoolValue") then
+            return ableChild.Value == true
+        elseif ableChild:IsA("StringValue") then
+            local val = ableChild.Value:lower()
+            return val == "true" or val == "1" or val == "enabled" or val == "yes"
+        elseif ableChild:IsA("NumberValue") then
+            return ableChild.Value > 0
+        end
+    end
+    
+    -- Check for "Able" child object (capital A)
+    local AbleChild = fishModel:FindFirstChild("Able")
+    if AbleChild then
+        if AbleChild:IsA("BoolValue") then
+            return AbleChild.Value == true
+        elseif AbleChild:IsA("StringValue") then
+            local val = AbleChild.Value:lower()
+            return val == "true" or val == "1" or val == "enabled" or val == "yes"
+        elseif AbleChild:IsA("NumberValue") then
+            return AbleChild.Value > 0
         end
     end
     
@@ -159,7 +159,7 @@ local function getFishInfo(fishModel)
     local name = prompt.ObjectText or fishModel.Name
     local action = prompt.ActionText or ""
     
-    -- Check if able is enabled
+    -- Check if Able attribute is enabled
     local enabled = isAbleEnabled(fishModel)
     
     return name, action, enabled
@@ -168,7 +168,7 @@ end
 -- Webhook sender
 local function SendWebhook(fishName, percent)
     local headers = {["Content-Type"] = "application/json"}
-    local message = "**" .. fishName .. "** - **" .. percent .. "%** (able enabled)"
+    local message = "**" .. fishName .. "** - **" .. percent .. "%** (Able: true)"
     local payload = {content = message}
     local body = HttpService:JSONEncode(payload)
     
@@ -207,7 +207,7 @@ local COOLDOWN = 300 -- 5 minutes cooldown
 -- Main scan function
 local function scanFishPPPart()
     if DEBUG then print("\n" .. string.rep("=", 60)) end
-    if DEBUG then print("[SCAN START] Scanning FishPPPart indices 0-150...") end
+    if DEBUG then print("[SCAN START] Scanning FishPPPart indices 0-150 for Able=true...") end
     
     local totalScanned = 0
     local enabledCount = 0
@@ -232,6 +232,10 @@ local function scanFishPPPart()
                 if name and enabled then
                     enabledCount = enabledCount + 1
                     
+                    if DEBUG then
+                        print("[ABLE] " .. name .. " has Able=true (Index " .. i .. ")")
+                    end
+                    
                     -- Check if it's a wanted fish
                     if isWantedFish(name) then
                         wantedCount = wantedCount + 1
@@ -254,18 +258,24 @@ local function scanFishPPPart()
                                 sentCount = sentCount + 1
                             else
                                 if DEBUG then
-                                    print("[COOLDOWN] " .. name .. " @ " .. percent .. "% (on cooldown)")
+                                    local remaining = COOLDOWN - (now - lastSent)
+                                    print("[COOLDOWN] " .. name .. " @ " .. percent .. "% (" .. math.floor(remaining) .. "s cooldown)")
                                 end
                             end
                         elseif DEBUG then
                             print("[NO-PERCENT] " .. name .. " (no valid percentage)")
                         end
                     elseif DEBUG then
-                        print("[NOT-WANTED] " .. name .. " (able enabled)")
+                        print("[NOT-WANTED] " .. name .. " (Able enabled but not wanted)")
                     end
-                elseif DEBUG and i % 25 == 0 then
-                    -- Print progress every 25 indices
+                elseif DEBUG and i % 30 == 0 then
+                    -- Print progress every 30 indices
                     print("[PROGRESS] Folder" .. folderIndex .. ": Scanned " .. i .. "/150 indices")
+                end
+            else
+                -- No child at this index
+                if DEBUG and i == 0 then
+                    print("[INFO] Folder" .. folderIndex .. " has " .. #children .. " children total")
                 end
             end
         end
@@ -273,9 +283,9 @@ local function scanFishPPPart()
     
     if DEBUG then
         print("\n[SCAN END] Summary:")
-        print("  Total indices scanned: " .. totalScanned)
-        print("  Models with 'able' enabled: " .. enabledCount)
-        print("  Wanted fish enabled: " .. wantedCount)
+        print("  Total indices checked: " .. totalScanned)
+        print("  Models with Able=true: " .. enabledCount)
+        print("  Wanted fish with Able=true: " .. wantedCount)
         print("  Webhooks sent: " .. sentCount)
         print(string.rep("=", 60))
     end
@@ -295,14 +305,30 @@ end)
 print("\n[FishScanner] Active!")
 print("  • Scanning: FishPPPart.Folder1/2/3")
 print("  • Indices: 0 to 150 in each folder")
-print("  • Checking: 'able' property enabled")
+print("  • Checking: Attribute 'Able' = true")
 print("  • Threshold: ≥ " .. THRESHOLD .. "%")
+print("  • Scan interval: " .. SCAN_INTERVAL .. " seconds")
 print("  • Cooldown: " .. COOLDOWN .. " seconds per fish")
 print("  • Wanted fish types: " .. #wantedFishTypes)
 
+-- Test the Able attribute check
+if DEBUG then
+    print("\n[TEST] Testing Able attribute detection...")
+    -- Test a few models to see their Able attribute
+    for _, folder in ipairs(folders) do
+        local children = folder:GetChildren()
+        if #children > 0 then
+            local testModel = children[1]
+            local ableValue = testModel:GetAttribute("Able")
+            print("[TEST] " .. testModel.Name .. ": Able = " .. tostring(ableValue))
+            break
+        end
+    end
+end
+
 -- Send startup notification
 wait(2)
-local startupMsg = "**[STARTUP]** FishScanner active! Scanning FishPPPart indices 0-150 for enabled fish."
+local startupMsg = "**[STARTUP]** FishScanner active! Scanning FishPPPart for fish with Able=true."
 local payload = {content = startupMsg}
 local body = HttpService:JSONEncode(payload)
 
