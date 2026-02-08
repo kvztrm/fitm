@@ -1,4 +1,5 @@
--- AutoFish Notifier - Scan 0-150 in all folders, extract name + %, one grouped webhook
+-- AutoFish Notifier - Indices 0-150, ≥50%, grouped webhook
+-- Uses your exact SendWebhook function
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
@@ -20,7 +21,7 @@ local folder3 = fpp:WaitForChild("Folder3", 5)
 
 local folders = {folder1, folder2, folder3}
 
-print("[FishScanner] Active - scanning 0 to " .. MAX_INDEX .. " in each folder")
+print("[FishScanner] Running - indices 0–" .. MAX_INDEX .. " - threshold ≥ " .. THRESHOLD .. "%")
 
 -- Your exact webhook sender
 local function SendWebhook(payload)
@@ -43,22 +44,22 @@ local function SendWebhook(payload)
     end
 end
 
--- Get name and action text
-local function getFishInfo(part)
-    if not part then return nil, nil end
+-- Get text from prompt
+local function getPromptText(part)
+    if not part then return nil end
 
     local prompt = part:FindFirstChild("PPPart_PP")
-    if not prompt or not prompt:IsA("ProximityPrompt") then return nil, nil end
+    if not prompt or not prompt:IsA("ProximityPrompt") then return nil end
 
-    local fishName = prompt.ObjectText or "Unknown"
-    local actionText = prompt.ActionText or ""
+    local obj = prompt.ObjectText or "Unknown Fish"
+    local act = prompt.ActionText or ""
 
-    return fishName, actionText
+    return obj, act
 end
 
 -- Extract percentage
-local function getPercentage(objText, actText)
-    local text = (objText or "") .. " " .. (actText or "")
+local function extractPercentage(obj, act)
+    local text = (obj or "") .. " " .. (act or "")
     if text == "" then return nil end
 
     local clean = text:lower():gsub("%s+", "")
@@ -80,7 +81,7 @@ local function getPercentage(objText, actText)
     return nil
 end
 
--- Send one grouped webhook
+-- Send grouped
 local lastSend = 0
 
 local function sendGrouped(detected)
@@ -91,11 +92,11 @@ local function sendGrouped(detected)
     if #detected == 0 then return end
 
     local lines = {}
-    for i, entry in ipairs(detected) do
-        table.insert(lines, i .. ". **" .. entry.name .. "** - **" .. entry.percent .. "%**")
+    for i, f in ipairs(detected) do
+        table.insert(lines, i .. ". **" .. f.name .. "** - **" .. f.percent .. "%**")
     end
 
-    local message = "**Fish ≥ " .. THRESHOLD .. "% (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
+    local message = "**High % Fish (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
 
     SendWebhook({content = message})
 end
@@ -108,7 +109,7 @@ RunService.Heartbeat:Connect(function()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
 
-    if DEBUG then print("[SCAN START] Indices 0–" .. MAX_INDEX .. " in folders") end
+    if DEBUG then print("[SCAN START] Checking 0–" .. MAX_INDEX .. "...") end
 
     local detected = {}
 
@@ -119,13 +120,13 @@ RunService.Heartbeat:Connect(function()
             local child = folder:GetChildren()[i + 1]
             if not child then continue end
 
-            local name, action = getFishInfo(child)
+            local name, action = getPromptText(child)
             if name then
-                local percent = getPercentage(name, action)
+                local percent = extractPercentage(name, action)
                 if percent then
                     table.insert(detected, {name = name, percent = percent})
                     if DEBUG then
-                        print("[DETECT] " .. name .. " @ " .. percent .. "% (F" .. fIdx .. ", idx " .. i .. ")")
+                        print("[DETECT] " .. name .. " @ " .. percent .. "%")
                     end
                 end
             end
@@ -137,4 +138,4 @@ RunService.Heartbeat:Connect(function()
     if DEBUG then print("[SCAN END] Found " .. #detected .. " fish ≥ " .. THRESHOLD .. "%") end
 end)
 
-print("[FishScanner] Running - threshold ≥ " .. THRESHOLD .. "% - indices 0–" .. MAX_INDEX)
+print("[FishScanner] Active - ≥ " .. THRESHOLD .. "% - indices 0–" .. MAX_INDEX)
