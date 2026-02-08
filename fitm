@@ -1,5 +1,5 @@
--- AutoFish Notifier - Shelves in "\232\180\167\230\158\182" + data in FishPPPart
--- Only reports fish that are on the shelves/hangers with ≥50%
+-- AutoFish Notifier - SAFE VERSION - long waits + nil guards everywhere
+-- Only your 17 shelf positions - ≥50%
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
@@ -10,66 +10,89 @@ local THRESHOLD = 50
 local SCAN_INTERVAL = 90
 local DEBUG = true
 
--- Shelf locations (where fish are physically displayed when spawned)
-local shelfParent = workspace:WaitForChild("FrameWork_WorkSpace", 10)
-    :WaitForChild("\232\180\167\230\158\182", 10)
+-- Wait longer for everything
+print("[INIT] Waiting for FrameWork_WorkSpace (30s)...")
+local frameWork = workspace:WaitForChild("FrameWork_WorkSpace", 30)
+if not frameWork then warn("[FATAL] FrameWork_WorkSpace missing after 30s") return end
 
--- Fish data locations (prompts with name and %)
-local fishDataParent = workspace:WaitForChild("FrameWork_WorkSpace", 10)
-    :WaitForChild("FishPPPart", 10)
+print("[INIT] Waiting for FishPPPart (30s)...")
+local fishPPPart = frameWork:WaitForChild("FishPPPart", 30)
+if not fishPPPart then warn("[FATAL] FishPPPart missing after 30s") return end
 
--- Your 17 exact shelf positions (folder index + index or name + label)
+print("[INIT] Waiting for shelf parent (30s)...")
+local shelfParent = frameWork:WaitForChild("\232\180\167\230\158\182", 30)
+if not shelfParent then warn("[FATAL] Shelf parent missing after 30s") return end
+
+-- Get folders with long waits
+local folder1 = shelfParent:WaitForChild("Folder1", 30)
+local folder2 = shelfParent:WaitForChild("Folder2", 30)
+local folder3 = shelfParent:WaitForChild("Folder3", 30)
+
+print("[FOLDER STATUS] Folder1: " .. tostring(folder1))
+print("[FOLDER STATUS] Folder2: " .. tostring(folder2))
+print("[FOLDER STATUS] Folder3: " .. tostring(folder3))
+
+local shelfFolders = {}
+if folder1 then table.insert(shelfFolders, {obj = folder1, idx = 1, name = "Folder1"}) end
+if folder2 then table.insert(shelfFolders, {obj = folder2, idx = 2, name = "Folder2"}) end
+if folder3 then table.insert(shelfFolders, {obj = folder3, idx = 3, name = "Folder3"}) end
+
+if #shelfFolders == 0 then
+    warn("[FATAL] No shelf folders found - game may not have loaded them yet")
+    return
+end
+
+print("[INFO] Found " .. #shelfFolders .. " shelf folders")
+
+-- Your 17 exact shelf positions
 local shelfPositions = {
-    {folderIdx = 1, index = 8,   label = "Gran Maja"},
+    {folderIdx = 1, index = 8,   name = nil, label = "Gran Maja"},
     {folderIdx = 1, index = nil, name = "\229\177\149\229\143\176", label = "Hammerhead"},
-    {folderIdx = 1, index = 14,  label = "Sea Dweller"},
-    {folderIdx = 1, index = 12,  label = "Zombie Fish"},
-    {folderIdx = 1, index = 10,  label = "King Squid"},
-    {folderIdx = 1, index = 15,  label = "Sea Reaper"},
-    {folderIdx = 1, index = 7,   label = "BLOOP"},
-    {folderIdx = 1, index = 6,   label = "Julia Beast"},
-    {folderIdx = 1, index = 5,   label = "Ningen"},
-    {folderIdx = 1, index = 3,   label = "Plesiosaurus"},
+    {folderIdx = 1, index = 14,  name = nil, label = "Sea Dweller"},
+    {folderIdx = 1, index = 12,  name = nil, label = "Zombie Fish"},
+    {folderIdx = 1, index = 10,  name = nil, label = "King Squid"},
+    {folderIdx = 1, index = 15,  name = nil, label = "Sea Reaper"},
+    {folderIdx = 1, index = 7,   name = nil, label = "BLOOP"},
+    {folderIdx = 1, index = 6,   name = nil, label = "Julia Beast"},
+    {folderIdx = 1, index = 5,   name = nil, label = "Ningen"},
+    {folderIdx = 1, index = 3,   name = nil, label = "Plesiosaurus"},
     {folderIdx = 1, index = nil, name = "\229\177\149\229\143\1761", label = "SCP3000"},
-    {folderIdx = 2, index = 6,   label = "Megalodon"},
+    {folderIdx = 2, index = 6,   name = nil, label = "Megalodon"},
     {folderIdx = 2, index = nil, name = "\230\158\182\229\173\144", label = "Julia Beast"},
-    {folderIdx = 3, index = 22,  label = "Shark Girl"},
-    {folderIdx = 3, index = 21,  label = "Shark Boy"},
-    {folderIdx = 3, index = 19,  label = "Bone Shark"},
-    {folderIdx = 3, index = 18,  label = "Sea Eater"},
+    {folderIdx = 3, index = 22,  name = nil, label = "Shark Girl"},
+    {folderIdx = 3, index = 21,  name = nil, label = "Shark Boy"},
+    {folderIdx = 3, index = 19,  name = nil, label = "Bone Shark"},
+    {folderIdx = 3, index = 18,  name = nil, label = "Sea Eater"},
 }
 
-print("[FishScanner] Loaded " .. #shelfPositions .. " exact shelf positions")
+print("[INFO] Defined " .. #shelfPositions .. " target positions")
 
--- Get name and action text from PPPart_PP in FishPPPart (same folder index)
-local function getFishInfo(shelfFolderIdx, entry)
-    local dataFolder = fishDataParent:FindFirstChild("Folder" .. shelfFolderIdx)
-    if not dataFolder then
-        print("[SKIP] Data Folder" .. shelfFolderIdx .. " not found")
+-- Get name and action text
+local function getFishInfo(part)
+    if not part then
+        print("[SKIP] Part is nil")
         return nil, nil
     end
 
-    local prompt = nil
-    if entry.index then
-        local children = dataFolder:GetChildren()
-        if children and #children >= entry.index + 1 then
-            local child = children[entry.index + 1]
-            prompt = child:FindFirstChild("PPPart_PP")
-        end
-    elseif entry.name then
-        local child = dataFolder:FindFirstChild(entry.name)
-        if child then
-            prompt = child:FindFirstChild("PPPart_PP")
-        end
+    local prompt = part:FindFirstChild("PPPart_PP")
+    if not prompt then
+        print("[SKIP] No PPPart_PP in " .. part:GetFullName())
+        return nil, nil
     end
 
-    if not prompt or not prompt:IsA("ProximityPrompt") then
-        print("[SKIP] No prompt for " .. entry.label)
+    if not prompt:IsA("ProximityPrompt") then
+        print("[SKIP] Not ProximityPrompt in " .. part:GetFullName())
         return nil, nil
     end
 
     local name = prompt.ObjectText or "Unknown Fish"
     local action = prompt.ActionText or ""
+
+    if DEBUG then
+        print("[PROMPT FOUND] " .. part:GetFullName())
+        print("   ObjectText: '" .. name .. "'")
+        print("   ActionText: '" .. action .. "'")
+    end
 
     return name, action
 end
@@ -77,7 +100,12 @@ end
 -- Extract percentage
 local function extractPercentage(name, action)
     local text = (name or "") .. " " .. (action or "")
-    if text == "" then return nil end
+    if text == "" then
+        print("[PARSE] No text")
+        return nil
+    end
+
+    if DEBUG then print("[PARSE] Text: " .. text:sub(1, 100)) end
 
     local clean = text:lower():gsub("%s+", "")
     local patterns = {
@@ -91,14 +119,22 @@ local function extractPercentage(name, action)
         local numStr = clean:match(pat)
         if numStr then
             local v = tonumber(numStr)
-            if v and v >= THRESHOLD then return v end
+            if v then
+                if v >= THRESHOLD then
+                    if DEBUG then print("[ACCEPT] " .. v .. "%") end
+                    return v
+                else
+                    if DEBUG then print("[REJECT] " .. v .. "% < " .. THRESHOLD) end
+                end
+            end
         end
     end
 
+    if DEBUG then print("[PARSE] No valid %") end
     return nil
 end
 
--- Your exact webhook sender
+-- Your webhook sender
 local function SendWebhook(payload)
     local headers = {["Content-Type"] = "application/json"}
     local body = HttpService:JSONEncode(payload)
@@ -119,7 +155,7 @@ local function SendWebhook(payload)
     end
 end
 
--- Send grouped webhook
+-- Send grouped
 local lastSend = 0
 
 local function sendGrouped(detected)
@@ -134,7 +170,7 @@ local function sendGrouped(detected)
         table.insert(lines, i .. ". **" .. f.name .. "** - **" .. f.percent .. "%**")
     end
 
-    local message = "**High % Fish on Shelves (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
+    local message = "**High % Fish Detected (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
 
     SendWebhook({content = message})
 end
@@ -158,35 +194,36 @@ RunService.Heartbeat:Connect(function()
         if entry.folderIdx == 3 then shelfFolder = folder3 end
 
         if not shelfFolder then
-            if DEBUG then print("[SKIP] Shelf Folder" .. entry.folderIdx .. " missing for " .. entry.label) end
+            print("[SKIP] Folder" .. entry.folderIdx .. " missing for " .. entry.label)
             continue
         end
 
-        local shelfPart = nil
+        local part = nil
         if entry.index then
             local children = shelfFolder:GetChildren()
-            if not children or #children < entry.index + 1 then
-                if DEBUG then print("[SKIP] Index " .. entry.index .. " out of bounds in Folder" .. entry.folderIdx) end
+            if not children then
+                print("[NIL] GetChildren() nil in Folder" .. entry.folderIdx)
                 continue
             end
-            shelfPart = children[entry.index + 1]
+            if type(children) ~= "table" then
+                print("[TYPE ERROR] GetChildren() not table in Folder" .. entry.folderIdx)
+                continue
+            end
+            if #children < entry.index + 1 then
+                print("[SKIP] Index " .. entry.index .. " out of bounds in Folder" .. entry.folderIdx .. " (only " .. #children .. ")")
+                continue
+            end
+            part = children[entry.index + 1]
         elseif entry.name then
-            shelfPart = shelfFolder:FindFirstChild(entry.name)
-            if not shelfPart then
-                if DEBUG then print("[SKIP] Named shelf '" .. entry.name .. "' not found in Folder" .. entry.folderIdx) end
+            part = shelfFolder:FindFirstChild(entry.name)
+            if not part then
+                print("[SKIP] Named part '" .. entry.name .. "' not found in Folder" .. entry.folderIdx)
             end
         end
 
-        if not shelfPart then continue end
+        if not part then continue end
 
-        -- Get data from FishPPPart (same folder index)
-        local dataFolder = fishDataFolders[entry.folderIdx]
-        if not dataFolder then
-            if DEBUG then print("[SKIP] Data Folder" .. entry.folderIdx .. " missing") end
-            continue
-        end
-
-        local name, action = getFishInfo(shelfPart)
+        local name, action = getFishInfo(part)
         if name and name ~= "" then
             local percent = extractPercentage(name, action)
             if percent then
@@ -200,7 +237,7 @@ RunService.Heartbeat:Connect(function()
 
     sendGrouped(detected)
 
-    if DEBUG then print("[SCAN END] Found " .. #detected .. " high % fish on shelves") end
+    if DEBUG then print("[SCAN END] Found " .. #detected .. " high % fish") end
 end)
 
 print("[FishScanner] Active - only your 17 shelf positions - ≥ " .. THRESHOLD .. "%")
