@@ -1,14 +1,14 @@
--- AutoFish Exploit Notifier - SCAN EVERY 90 SECONDS (rate limit safe)
--- Checks your specific fish positions only
+-- AutoFish Exploit Notifier - Using working exploit request() webhook method
+-- Scans your specific fish positions only
 
-local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")  -- only for JSONEncode
 
-local WEBHOOK_URL = "https://webhook.lewisakura.moe/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
 local THRESHOLD = 50       -- change to 200+ when ready
-local SCAN_INTERVAL = 90   -- seconds between full scans
 local DEBUG = true
+local COOLDOWN = 6         -- seconds between sends
 
 -- Folders
 local fpp = workspace:WaitForChild("FrameWork_WorkSpace", 10)
@@ -18,9 +18,8 @@ local folder1 = fpp:WaitForChild("Folder1", 5)
 local folder2 = fpp:WaitForChild("Folder2", 5)
 local folder3 = fpp:WaitForChild("Folder3", 5)
 
--- Your specific fish positions (rightest / middle / leftest etc.)
+-- Your specific fish positions
 local fishRefs = {
-    -- Folder1
     {part = folder1 and folder1:GetChildren()[24], name = "SCP-300 Rightest"},
     {part = folder1 and folder1:GetChildren()[44], name = "SCP-300 Middle"},
     {part = folder1 and folder1:GetChildren()[25], name = "SCP-300 Leftest"},
@@ -83,13 +82,15 @@ local function getPromptText(fishPart)
     if not fishPart then return nil end
 
     local prompt = fishPart:FindFirstChild("PPPart_PP")
-    if not prompt or not prompt:IsA("ProximityPrompt") then
-        return nil
-    end
+    if not prompt or not prompt:IsA("ProximityPrompt") then return nil end
 
     local objText = prompt.ObjectText or ""
     local actText = prompt.ActionText or ""
     local combined = objText .. " " .. actText
+
+    if combined:match("%d") and DEBUG then
+        print("[PROMPT] " .. fishPart.Name .. " → Obj: '" .. objText .. "' | Act: '" .. actText .. "'")
+    end
 
     return combined
 end
@@ -110,78 +111,58 @@ local function extractPercentage(text)
         local numStr = clean:match(pat)
         if numStr then
             local v = tonumber(numStr)
-            if v and v >= THRESHOLD then
-                return v
-            end
+            if v and v >= THRESHOLD then return v end
         end
     end
 
     return nil
 end
 
--- Webhook sender with cooldown
-local lastSendTime = 0
+-- Webhook sender using your working request() method
+local lastSend = 0
 
 local function sendWebhook(value, fishName)
     local now = tick()
-    if now - lastSendTime < 30 then  -- extra safety cooldown
-        if DEBUG then print("[SKIP] Too soon after last webhook") end
+    if now - lastSend < COOLDOWN then
+        if DEBUG then print("[SKIP] Cooldown active") end
         return
     end
-    lastSendTime = now
+    lastSend = now
 
-    local data = {
-        embeds = {{
-            title = value .. "% FISH DETECTED",
-            description = fishName,
-            color = 0xFF0000,
-            fields = {
-                {name = "Fish", value = fishName, inline = true},
-                {name = "Percentage", value = value .. "%", inline = true}
-            },
-            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
-        }}
+    local payload = {
+        content = value .. "% FISH DETECTED - " .. fishName
     }
 
-    local success, err = pcall(function()
-        HttpService:PostAsync(WEBHOOK_URL, HttpService:JSONEncode(data), Enum.HttpContentType.ApplicationJson)
+    local success, response = pcall(function()
+        return request({
+            Url = WEBHOOK_URL,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(payload)
+        })
     end)
 
     if success then
-        print("[WEBHOOK SUCCESS] Sent: " .. fishName .. " (" .. value .. "%)")
+        print("[WEBHOOK] Sent! Status: " .. (response and response.StatusCode or "no code"))
     else
-        warn("[WEBHOOK FAILED] " .. tostring(err))
+        warn("[WEBHOOK] Request failed: " .. tostring(response))
     end
 end
 
--- Scan every 90 seconds
-local lastScan = 0
-
+-- Scan loop
 RunService.Heartbeat:Connect(function()
-    local now = tick()
-    if now - lastScan < SCAN_INTERVAL then return end
-    lastScan = now
-
-    print("[SCAN START] Checking all fish positions...")
-
     for _, entry in ipairs(fishRefs) do
         local part = entry.part
         if not part then continue end
 
         local text = getPromptText(part)
         if text then
-            if DEBUG then
-                print("[DETECTED] " .. entry.name .. ": " .. text)
-            end
-
             local value = extractPercentage(text)
             if value then
                 sendWebhook(value, entry.name)
             end
         end
     end
-
-    print("[SCAN END] Next scan in " .. SCAN_INTERVAL .. " seconds")
 end)
 
-print("[FishScanner] Active - scanning every " .. SCAN_INTERVAL .. " seconds")
+print("[FishScanner] Active - using working exploit request() webhook method")
