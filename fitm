@@ -1,15 +1,14 @@
--- AutoFish Exploit Notifier - FIXED for ProximityPrompt
--- Scans ONLY your listed fish positions
--- Reads .ObjectText and .ActionText from PPPart_PP ProximityPrompt
+-- AutoFish Exploit Notifier - SCAN EVERY 90 SECONDS (rate limit safe)
+-- Checks your specific fish positions only
 
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
 local WEBHOOK_URL = "https://webhook.lewisakura.moe/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
-local THRESHOLD = 50       -- set higher when ready
-local DEBUG = true         -- turn off later
-local COOLDOWN = 6         -- seconds between sends
+local THRESHOLD = 50       -- change to 200+ when ready
+local SCAN_INTERVAL = 90   -- seconds between full scans
+local DEBUG = true
 
 -- Folders
 local fpp = workspace:WaitForChild("FrameWork_WorkSpace", 10)
@@ -19,7 +18,7 @@ local folder1 = fpp:WaitForChild("Folder1", 5)
 local folder2 = fpp:WaitForChild("Folder2", 5)
 local folder3 = fpp:WaitForChild("Folder3", 5)
 
--- Your exact fish positions (only these)
+-- Your specific fish positions (rightest / middle / leftest etc.)
 local fishRefs = {
     -- Folder1
     {part = folder1 and folder1:GetChildren()[24], name = "SCP-300 Rightest"},
@@ -77,7 +76,7 @@ local fishRefs = {
     {part = folder3 and folder3:GetChildren()[55], name = "Shark Boy Rightest"},
 }
 
-print("[FishScanner] Loaded " .. #fishRefs .. " fish positions to monitor")
+print("[FishScanner] Loaded " .. #fishRefs .. " specific fish positions")
 
 -- Get text from ProximityPrompt
 local function getPromptText(fishPart)
@@ -90,19 +89,12 @@ local function getPromptText(fishPart)
 
     local objText = prompt.ObjectText or ""
     local actText = prompt.ActionText or ""
-
     local combined = objText .. " " .. actText
-
-    if DEBUG then
-        if combined:match("%d") then
-            print("[PROMPT] " .. fishPart.Name .. " → Obj: '" .. objText .. "' | Act: '" .. actText .. "'")
-        end
-    end
 
     return combined
 end
 
--- Extract percentage
+-- Parse percentage
 local function extractPercentage(text)
     if not text or text == "" then return nil end
 
@@ -127,22 +119,25 @@ local function extractPercentage(text)
     return nil
 end
 
--- Webhook sender
-local lastSend = 0
+-- Webhook sender with cooldown
+local lastSendTime = 0
 
 local function sendWebhook(value, fishName)
     local now = tick()
-    if now - lastSend < COOLDOWN then return end
-    lastSend = now
+    if now - lastSendTime < 30 then  -- extra safety cooldown
+        if DEBUG then print("[SKIP] Too soon after last webhook") end
+        return
+    end
+    lastSendTime = now
 
     local data = {
         embeds = {{
-            title = value .. "% FISH READY",
+            title = value .. "% FISH DETECTED",
             description = fishName,
             color = 0xFF0000,
             fields = {
                 {name = "Fish", value = fishName, inline = true},
-                {name = "%", value = value .. "%", inline = true}
+                {name = "Percentage", value = value .. "%", inline = true}
             },
             timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
         }}
@@ -153,26 +148,40 @@ local function sendWebhook(value, fishName)
     end)
 
     if success then
-        print("[WEBHOOK] Sent: " .. fishName .. " (" .. value .. "%)")
+        print("[WEBHOOK SUCCESS] Sent: " .. fishName .. " (" .. value .. "%)")
     else
-        warn("[WEBHOOK FAIL] " .. tostring(err))
+        warn("[WEBHOOK FAILED] " .. tostring(err))
     end
 end
 
--- Scan loop
+-- Scan every 90 seconds
+local lastScan = 0
+
 RunService.Heartbeat:Connect(function()
+    local now = tick()
+    if now - lastScan < SCAN_INTERVAL then return end
+    lastScan = now
+
+    print("[SCAN START] Checking all fish positions...")
+
     for _, entry in ipairs(fishRefs) do
         local part = entry.part
         if not part then continue end
 
         local text = getPromptText(part)
         if text then
+            if DEBUG then
+                print("[DETECTED] " .. entry.name .. ": " .. text)
+            end
+
             local value = extractPercentage(text)
             if value then
                 sendWebhook(value, entry.name)
             end
         end
     end
+
+    print("[SCAN END] Next scan in " .. SCAN_INTERVAL .. " seconds")
 end)
 
-print("[FishScanner] Active - only your listed fish - checking PPPart_PP ProximityPrompt")
+print("[FishScanner] Active - scanning every " .. SCAN_INTERVAL .. " seconds")
