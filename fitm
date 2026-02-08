@@ -1,115 +1,189 @@
--- AutoFish: Background Scanner → Discord Webhook via Proxy
--- .ObjectText | Threshold 50% for testing | Nil crash fixed
+-- AutoFish: Scan ALL Referenced Fish Parts + Discord Webhook
+-- Checks every position from your original list | Threshold 50% for testing
 
 local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
--- Proxied URL (this works in live games; direct discord.com does NOT)
 local WEBHOOK_URL = "https://webhook.lewisakura.moe/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
 local THRESHOLD = 50
 local DEBUG = true
 
--- References
-local folder1 = workspace:WaitForChild("FrameWork_WorkSpace", 10)
+-- Get folders
+local fpp = workspace:WaitForChild("FrameWork_WorkSpace", 10)
     :WaitForChild("FishPPPart", 5)
-    :WaitForChild("Folder1", 5)
+local folder1 = fpp and fpp:WaitForChild("Folder1", 5)
+local folder2 = fpp and fpp:WaitForChild("Folder2", 5)
+local folder3 = fpp and fpp:WaitForChild("Folder3", 5)
 
-local displayObj = folder1:GetChildren()[14]
-local ppPart = displayObj and displayObj:FindFirstChild("PPPart_PP")
+-- All referenced fish positions (from your list)
+local allFishParts = {}
 
-if not ppPart then
-    warn("[FishWebhook] PPPart_PP not found!")
-    return
+-- Folder1
+if folder1 then
+    table.insert(allFishParts, folder1:GetChildren()[24])   -- scp 300 rightest
+    table.insert(allFishParts, folder1:GetChildren()[44])   -- scp 300 middle
+    table.insert(allFishParts, folder1:GetChildren()[25])   -- scp 300 leftest
+    table.insert(allFishParts, folder1:GetChildren()[48])   -- plesiosaurus right
+    table.insert(allFishParts, folder1:GetChildren()[27])   -- plesiosaurus middle
+    table.insert(allFishParts, folder1:GetChildren()[26])   -- plesiosaurus left
+    table.insert(allFishParts, folder1:GetChildren()[45])   -- hammerhead left
+    table.insert(allFishParts, folder1:GetChildren()[46])   -- hammerhead middle
+    table.insert(allFishParts, folder1:GetChildren()[47])   -- hammerhead right
+    table.insert(allFishParts, folder1:GetChildren()[43])   -- sea dweller right
+    table.insert(allFishParts, folder1:GetChildren()[42])   -- sea dweller middle
+    table.insert(allFishParts, folder1:GetChildren()[19])   -- sea dweller left
+    table.insert(allFishParts, folder1:GetChildren()[40])   -- zombie fish middle
+    table.insert(allFishParts, folder1:GetChildren()[39])   -- zombie fish left
+    table.insert(allFishParts, folder1:GetChildren()[9])    -- zombie fish right
+    table.insert(allFishParts, folder1:GetChildren()[38])   -- king squid middle
+    table.insert(allFishParts, folder1:GetChildren()[37])   -- king squid left
+    table.insert(allFishParts, folder1:GetChildren()[8])    -- king squid right
+    table.insert(allFishParts, folder1:GetChildren()[36])   -- gran maja right
+    table.insert(allFishParts, folder1:GetChildren()[35])   -- gran maja middle
+    table.insert(allFishParts, folder1:GetChildren()[34])   -- gran maja left
+    table.insert(allFishParts, folder1:GetChildren()[33])   -- bloop right
+    table.insert(allFishParts, folder1:GetChildren()[32])   -- bloop left
+    table.insert(allFishParts, folder1:GetChildren()[6])    -- bloop middle
+    table.insert(allFishParts, folder1:GetChildren()[31])   -- julia beast ningen middle
+    table.insert(allFishParts, folder1:GetChildren()[30])   -- julia beast ningen left
+    table.insert(allFishParts, folder1:GetChildren()[5])    -- julia beast ningen right
+    table.insert(allFishParts, folder1:GetChildren()[29])   -- ningen right
+    table.insert(allFishParts, folder1:GetChildren()[28])   -- ningen middle
+    table.insert(allFishParts, folder1:GetChildren()[4])    -- ningen left
+    table.insert(allFishParts, folder1:GetChildren()[21])   -- sea reaper right
+    table.insert(allFishParts, folder1:GetChildren()[20])   -- sea reaper middle
+    table.insert(allFishParts, folder1:GetChildren()[11])   -- sea reaper left
 end
 
-print("[FishWebhook] Monitoring: " .. ppPart:GetFullName() .. " | Using proxy")
+-- Folder2
+if folder2 then
+    table.insert(allFishParts, folder2:GetChildren()[36])   -- julia beast middle right
+    table.insert(allFishParts, folder2:GetChildren()[26])   -- julia beast middle middle
+    table.insert(allFishParts, folder2:GetChildren()[35])   -- julia beast middle left
+    table.insert(allFishParts, folder2:GetChildren()[30])   -- megalodon left
+    table.insert(allFishParts, folder2:GetChildren()[8])    -- megalodon right
+    table.insert(allFishParts, folder2:GetChildren()[7])    -- megalodon middle
+end
 
-local lastText = ""
-local lastValue = 0
+-- Folder3
+if folder3 then
+    table.insert(allFishParts, folder3:GetChildren()[69])   -- sea eater right
+    table.insert(allFishParts, folder3:GetChildren()[68])   -- sea eater middle
+    table.insert(allFishParts, folder3:GetChildren()[67])   -- sea eater left
+    table.insert(allFishParts, folder3:GetChildren()[66])   -- boneshark middle
+    table.insert(allFishParts, folder3:GetChildren()[65])   -- boneshark left
+    table.insert(allFishParts, folder3:GetChildren()[61])   -- boneshark right
+    table.insert(allFishParts, folder3:GetChildren()[60])   -- shark girl right
+    table.insert(allFishParts, folder3:GetChildren()[59])   -- shark girl middle
+    table.insert(allFishParts, folder3:GetChildren()[58])   -- shark girl left
+    table.insert(allFishParts, folder3:GetChildren()[57])   -- shark boy left
+    table.insert(allFishParts, folder3:GetChildren()[56])   -- shark boy middle
+    table.insert(allFishParts, folder3:GetChildren()[55])   -- shark boy right
+end
 
-local function extractPercentageAndFish(rawText)
-    if typeof(rawText) ~= "string" or rawText == "" then return nil, nil end
-    if rawText == lastText then return lastValue, nil end
+-- Filter valid parts
+local validParts = {}
+for _, part in ipairs(allFishParts) do
+    if part and part.Parent then
+        table.insert(validParts, part)
+    end
+end
 
-    if DEBUG then print("[DEBUG] Raw text: \"" .. rawText .. "\"") end
+print("[FishScanner] Found " .. #validParts .. " valid fish parts to scan")
 
-    lastText = rawText
-    local text = rawText:lower():gsub(" ", "")
+-- Helper: get any readable text from a part
+local function getAnyText(part)
+    if not part then return nil end
+    
+    local candidates = {
+        part.ObjectText,
+        part.Text,
+        (part:FindFirstChildWhichIsA("TextLabel") and (part:FindFirstChildWhichIsA("TextLabel").ObjectText or part:FindFirstChildWhichIsA("TextLabel").Text)),
+        (part:FindFirstChild("SurfaceGui") and part.SurfaceGui:FindFirstChildWhichIsA("TextLabel") and (part.SurfaceGui:FindFirstChildWhichIsA("TextLabel").ObjectText or part.SurfaceGui:FindFirstChildWhichIsA("TextLabel").Text))
+    }
+    
+    for _, txt in ipairs(candidates) do
+        if typeof(txt) == "string" and txt ~= "" then
+            return txt
+        end
+    end
+    
+    return nil
+end
 
+-- Extract percentage + name
+local function extractInfo(text)
+    if not text or text == "" then return nil, nil end
+    
+    local lower = text:lower():gsub(" ", "")
+    
     local value
     for _, pat in ipairs({
         "(%d+%.?%d*)%%",
         "(%d+%.?%d*) ?percent",
         "(%d+)%%?",
-        "over (%d+)"
+        "(%d+)"
     }) do
-        local numStr = text:match(pat)
-        if numStr then
-            value = tonumber(numStr)
+        local m = lower:match(pat)
+        if m then
+            value = tonumber(m)
             if value then break end
         end
     end
-
+    
     if not value or value < THRESHOLD then return nil, nil end
-    if value == lastValue then return nil, nil end
-
-    local fishName = text:match("([%w%s]+)%d+%%") 
-                  or text:match("([%w%s]+)at%d+%%") 
-                  or text:match("([%w%s]+)%d+%%") 
-                  or rawText:match("([%w%s]+)%d+")  
-                  or "Unknown Fish"
-
-    fishName = fishName:gsub("^%s*(.-)%s*$", "%1"):gsub("%s+", " ")
-    if fishName == "" then fishName = "Unknown Fish" end
-
-    lastValue = value
-    return value, fishName
+    
+    local name = text:match("([%w%s]+)%d+") or text:match("([%w%s]+)%%") or "Unknown Fish"
+    name = name:gsub("^%s*(.-)%s*$", "%1")
+    
+    return value, name
 end
 
-local function sendWebhook(value, fishName)
+-- Send webhook
+local function sendAlert(value, fishName, partName)
     fishName = fishName or "Unknown Fish"
-    value = value or 0
-
-    local description = fishName .. " detected at **" .. tostring(value) .. "%**!"
-
-    if DEBUG then print("[DEBUG] Sending: " .. description) end
-
+    
     local data = {
         embeds = {{
-            title = "Fish Spawn Detected (TEST)",
-            description = description,
-            color = 0x55AA55,
+            title = "🚨 Fish Spawn Detected!",
+            description = "High percentage fish appeared - check in-game!",
+            color = 0xFF4444,
             fields = {
-                {name = "Percentage", value = tostring(value) .. "%", inline = true},
-                {name = "Fish", value = fishName, inline = true}
+                {name = "Fish", value = "**" .. fishName .. "**", inline = true},
+                {name = "Percentage", value = "**" .. tostring(value) .. "%**", inline = true},
+                {name = "Location", value = partName or "Unknown", inline = true}
             },
             timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
         }}
     }
-
+    
     local success, err = pcall(function()
         HttpService:PostAsync(WEBHOOK_URL, HttpService:JSONEncode(data), Enum.HttpContentType.ApplicationJson)
     end)
-
+    
     if success then
-        print("[SUCCESS] Sent: " .. fishName .. " (" .. value .. "%)")
+        print("[WEBHOOK] Sent: " .. fishName .. " (" .. value .. "%) at " .. (partName or "?"))
     else
-        warn("[ERROR] Failed: " .. tostring(err))
+        warn("[WEBHOOK] Failed: " .. tostring(err))
     end
 end
 
+-- Main scan loop
 RunService.Heartbeat:Connect(function()
-    local text = ppPart.ObjectText
-        or (ppPart:FindFirstChildWhichIsA("TextLabel") and ppPart:FindFirstChildWhichIsA("TextLabel").ObjectText)
-        or (ppPart:FindFirstChild("SurfaceGui") and ppPart.SurfaceGui:FindFirstChildWhichIsA("TextLabel") and ppPart.SurfaceGui:FindFirstChildWhichIsA("TextLabel").ObjectText)
-
-    if not text or text == "" then return end
-
-    local value, fishName = extractPercentageAndFish(text)
-    if value then
-        sendWebhook(value, fishName)
+    for _, part in ipairs(validParts) do
+        local text = getAnyText(part)
+        if text then
+            if DEBUG then
+                print("[SCAN] Found text on " .. part:GetFullName() .. ": \"" .. text .. "\"")
+            end
+            
+            local value, name = extractInfo(text)
+            if value then
+                sendAlert(value, name, part.Name or part:GetFullName())
+            end
+        end
     end
 end)
 
-print("[FishWebhook] Active - threshold " .. THRESHOLD .. "%")
+print("[FishScanner] Active - scanning all referenced fish parts")
