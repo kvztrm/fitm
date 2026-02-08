@@ -1,5 +1,5 @@
--- AutoFish Notifier - ONLY the exact fish positions you listed
--- Groups detected fish ≥50% into one webhook
+-- AutoFish Notifier - Only exact shelf positions in special folder
+-- Scans your 17 specific fish - grouped webhook
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
@@ -10,47 +10,42 @@ local THRESHOLD = 50
 local SCAN_INTERVAL = 90   -- seconds
 local DEBUG = true
 
--- Folders
-local fpp = workspace:WaitForChild("FrameWork_WorkSpace", 10)
-    :WaitForChild("FishPPPart", 5)
+-- Special folder with shelves
+local shelfParent = workspace:WaitForChild("FrameWork_WorkSpace", 10)
+    :WaitForChild("\232\180\167\230\158\182", 5)  -- the special name
 
-local folder1 = fpp:WaitForChild("Folder1", 5)
-local folder2 = fpp:WaitForChild("Folder2", 5)
-local folder3 = fpp:WaitForChild("Folder3", 5)
+local folder1 = shelfParent:WaitForChild("Folder1", 5)
+local folder2 = shelfParent:WaitForChild("Folder2", 5)
+local folder3 = shelfParent:WaitForChild("Folder3", 5)
 
--- Your exact listed fish positions + labels
-local fishPositions = {
-    -- Folder1
-    {part = folder1 and folder1:GetChildren()[8],  label = "Gran Maja"},
-    {part = folder1 and folder1["\229\177\149\229\143\176"], label = "Hammerhead"},
-    {part = folder1 and folder1:GetChildren()[14], label = "Sea Dweller"},
-    {part = folder1 and folder1:GetChildren()[12], label = "Zombie Fish"},
-    {part = folder1 and folder1:GetChildren()[10], label = "King Squid"},
-    {part = folder1 and folder1:GetChildren()[15], label = "Sea Reaper"},
-    {part = folder1 and folder1:GetChildren()[7],  label = "BLOOP"},
-    {part = folder1 and folder1:GetChildren()[6],  label = "Julia Beast"},
-    {part = folder1 and folder1:GetChildren()[5],  label = "Ningen"},
-    {part = folder1 and folder1:GetChildren()[3],  label = "Plesiosaurus"},
-    {part = folder1 and folder1["\229\177\149\229\143\1761"], label = "SCP3000"},
-    
-    -- Folder2
-    {part = folder2 and folder2:GetChildren()[6],  label = "Megalodon"},
-    {part = folder2 and folder2["\230\158\182\229\173\144"], label = "Julia Beast"},
-    
-    -- Folder3
-    {part = folder3 and folder3:GetChildren()[22], label = "Shark Girl"},
-    {part = folder3 and folder3:GetChildren()[21], label = "Shark Boy"},
-    {part = folder3 and folder3:GetChildren()[19], label = "Bone Shark"},
-    {part = folder3 and folder3:GetChildren()[18], label = "Sea Eater"},
+-- Your exact 17 shelf positions
+local shelfFish = {
+    {part = folder1:GetChildren()[8],               label = "Gran Maja"},
+    {part = folder1["\229\177\149\229\143\176"],    label = "Hammerhead"},
+    {part = folder1:GetChildren()[14],              label = "Sea Dweller"},
+    {part = folder1:GetChildren()[12],              label = "Zombie Fish"},
+    {part = folder1:GetChildren()[10],              label = "King Squid"},
+    {part = folder1:GetChildren()[15],              label = "Sea Reaper"},
+    {part = folder1:GetChildren()[7],               label = "BLOOP"},
+    {part = folder1:GetChildren()[6],               label = "Julia Beast"},
+    {part = folder1:GetChildren()[5],               label = "Ningen"},
+    {part = folder1:GetChildren()[3],               label = "Plesiosaurus"},
+    {part = folder1["\229\177\149\229\143\1761"],   label = "SCP3000"},
+    {part = folder2:GetChildren()[6],               label = "Megalodon"},
+    {part = folder2["\230\158\182\229\173\144"],    label = "Julia Beast"},
+    {part = folder3:GetChildren()[22],              label = "Shark Girl"},
+    {part = folder3:GetChildren()[21],              label = "Shark Boy"},
+    {part = folder3:GetChildren()[19],              label = "Bone Shark"},
+    {part = folder3:GetChildren()[18],              label = "Sea Eater"},
 }
 
-print("[FishScanner] Loaded " .. #fishPositions .. " specific fish positions")
+print("[FishScanner] Loaded " .. #shelfFish .. " exact shelf positions")
 
 -- Get text from ProximityPrompt
-local function getPromptText(fishPart)
-    if not fishPart then return nil, nil end
+local function getPromptText(part)
+    if not part then return nil, nil end
 
-    local prompt = fishPart:FindFirstChild("PPPart_PP")
+    local prompt = part:FindFirstChild("PPPart_PP")
     if not prompt or not prompt:IsA("ProximityPrompt") then return nil, nil end
 
     local objText = prompt.ObjectText or ""
@@ -83,7 +78,7 @@ local function extractPercentage(objText, actText)
     return nil
 end
 
--- Your exact webhook sender function
+-- Your exact webhook sender
 local function SendWebhook(payload)
     local headers = {["Content-Type"] = "application/json"}
     local body = HttpService:JSONEncode(payload)
@@ -104,7 +99,7 @@ local function SendWebhook(payload)
     end
 end
 
--- Send one grouped webhook
+-- Send grouped webhook
 local lastSend = 0
 
 local function sendGrouped(detected)
@@ -119,7 +114,7 @@ local function sendGrouped(detected)
         table.insert(lines, i .. ". **" .. f.name .. "** - **" .. f.percent .. "%**")
     end
 
-    local message = "**High % Fish Detected (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
+    local message = "**High % Fish on Shelves (" .. #detected .. " total):**\n" .. table.concat(lines, "\n")
 
     SendWebhook({content = message})
 end
@@ -132,23 +127,21 @@ RunService.Heartbeat:Connect(function()
     if now - lastScan < SCAN_INTERVAL then return end
     lastScan = now
 
-    if DEBUG then print("[SCAN START] Checking your specific fish positions...") end
+    if DEBUG then print("[SCAN START] Checking your 17 shelf positions...") end
 
     local detected = {}
 
-    for _, entry in ipairs(fishPositions) do
+    for _, entry in ipairs(shelfFish) do
         local part = entry.part
         if not part then continue end
 
         local name, action = getPromptText(part)
-        if name then
+        if name and name ~= "" then
             local percent = extractPercentage(name, action)
             if percent then
-                -- Use real name from prompt if available, fallback to your label
-                local displayName = name ~= "" and name or entry.label
-                table.insert(detected, {name = displayName, percent = percent})
+                table.insert(detected, {name = name, percent = percent})
                 if DEBUG then
-                    print("[DETECT] " .. displayName .. " @ " .. percent .. "%")
+                    print("[DETECT] " .. name .. " @ " .. percent .. "%")
                 end
             end
         end
@@ -156,7 +149,7 @@ RunService.Heartbeat:Connect(function()
 
     sendGrouped(detected)
 
-    if DEBUG then print("[SCAN END] Found " .. #detected .. " fish ≥ " .. THRESHOLD .. "%") end
+    if DEBUG then print("[SCAN END] Found " .. #detected .. " high % fish on shelves") end
 end)
 
-print("[FishScanner] Active - only your listed fish positions - threshold ≥ " .. THRESHOLD .. "%")
+print("[FishScanner] Active - only your 17 shelf positions - threshold ≥ " .. THRESHOLD .. "%")
