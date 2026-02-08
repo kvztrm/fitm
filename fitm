@@ -1,14 +1,14 @@
--- AutoFish Exploit Notifier - Using working exploit request() webhook method
--- Scans your specific fish positions only
+-- AutoFish Exploit Notifier - Scans all fish, collects >=50%, sends ONE webhook with all
+-- Uses your working exploit request() webhook method
 
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")  -- only for JSONEncode
 
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1469813322936356956/7vOLfjATJUvnwcKcUACeMOpC6-KssMk6P6pSsNzajaJXHRWY5PhPuq9rE2WJQsNJ2u2n"
 
-local THRESHOLD = 50       -- change to 200+ when ready
+local THRESHOLD = 50
 local DEBUG = true
-local COOLDOWN = 6         -- seconds between sends
+local SCAN_INTERVAL = 90   -- seconds between full scans (rate limit safe)
 
 -- Folders
 local fpp = workspace:WaitForChild("FrameWork_WorkSpace", 10)
@@ -75,7 +75,7 @@ local fishRefs = {
     {part = folder3 and folder3:GetChildren()[55], name = "Shark Boy Rightest"},
 }
 
-print("[FishScanner] Loaded " .. #fishRefs .. " specific fish positions")
+print("[FishScanner] Loaded " .. #fishRefs .. " fish positions - scanning every " .. SCAN_INTERVAL .. " seconds")
 
 -- Get text from ProximityPrompt
 local function getPromptText(fishPart)
@@ -86,13 +86,7 @@ local function getPromptText(fishPart)
 
     local objText = prompt.ObjectText or ""
     local actText = prompt.ActionText or ""
-    local combined = objText .. " " .. actText
-
-    if combined:match("%d") and DEBUG then
-        print("[PROMPT] " .. fishPart.Name .. " → Obj: '" .. objText .. "' | Act: '" .. actText .. "'")
-    end
-
-    return combined
+    return objText .. " " .. actText
 end
 
 -- Parse percentage
@@ -121,17 +115,19 @@ end
 -- Webhook sender using your working request() method
 local lastSend = 0
 
-local function sendWebhook(value, fishName)
+local function sendWebhook(highFishes)
     local now = tick()
-    if now - lastSend < COOLDOWN then
-        if DEBUG then print("[SKIP] Cooldown active") end
-        return
-    end
+    if now - lastSend < 30 then return end  -- extra safety
     lastSend = now
 
-    local payload = {
-        content = value .. "% FISH DETECTED - " .. fishName
-    }
+    if #highFishes == 0 then return end
+
+    local message = "**High % Fish Detected (" .. #highFishes .. " total):**\n"
+    for i, entry in ipairs(highFishes) do
+        message = message .. i .. ". **" .. entry.name .. "** - " .. entry.percent .. "%\n"
+    end
+
+    local payload = { content = message }
 
     local success, response = pcall(function()
         return request({
@@ -143,14 +139,24 @@ local function sendWebhook(value, fishName)
     end)
 
     if success then
-        print("[WEBHOOK] Sent! Status: " .. (response and response.StatusCode or "no code"))
+        print("[WEBHOOK] Sent combined message! Status: " .. (response.StatusCode or "no code"))
     else
-        warn("[WEBHOOK] Request failed: " .. tostring(response))
+        warn("[WEBHOOK] Failed: " .. tostring(response))
     end
 end
 
--- Scan loop
+-- Main scan loop (every SCAN_INTERVAL seconds)
+local lastScan = 0
+
 RunService.Heartbeat:Connect(function()
+    local now = tick()
+    if now - lastScan < SCAN_INTERVAL then return end
+    lastScan = now
+
+    if DEBUG then print("[SCAN START] Checking all fish...") end
+
+    local highFishes = {}
+
     for _, entry in ipairs(fishRefs) do
         local part = entry.part
         if not part then continue end
@@ -159,10 +165,21 @@ RunService.Heartbeat:Connect(function()
         if text then
             local value = extractPercentage(text)
             if value then
-                sendWebhook(value, entry.name)
+                table.insert(highFishes, {name = entry.name, percent = value})
+                if DEBUG then
+                    print("[HIGH] " .. entry.name .. " at " .. value .. "%")
+                end
             end
         end
     end
+
+    if #highFishes > 0 then
+        sendWebhook(highFishes)
+    else
+        if DEBUG then print("[SCAN] No high % fish found this time") end
+    end
+
+    if DEBUG then print("[SCAN END] Next scan in " .. SCAN_INTERVAL .. " seconds") end
 end)
 
-print("[FishScanner] Active - using working exploit request() webhook method")
+print("[FishScanner] Active - scanning every " .. SCAN_INTERVAL .. " seconds, sending one webhook with all high % fish")
