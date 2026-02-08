@@ -165,21 +165,39 @@ local function getFishInfo(fishModel)
     return name, action, enabled
 end
 
--- Webhook sender
-local function SendWebhook(fishName, percent)
-    local headers = {["Content-Type"] = "application/json"}
-    local message = "**" .. fishName .. "** - **" .. percent .. "%** (Able: true)"
+-- Send all detected fish as one webhook message
+local function SendCombinedWebhook(detectedFish)
+    if #detectedFish == 0 then return end
+    
+    -- Sort by percentage (highest first)
+    table.sort(detectedFish, function(a, b)
+        return a.percent > b.percent
+    end)
+    
+    -- Create the message
+    local lines = {}
+    for i, fish in ipairs(detectedFish) do
+        table.insert(lines, i .. ". **" .. fish.name .. "** - **" .. fish.percent .. "%**")
+    end
+    
+    local message = "**Fish Ready for Collection (" .. #detectedFish .. " total):**\n" .. table.concat(lines, "\n")
     local payload = {content = message}
     local body = HttpService:JSONEncode(payload)
     
-    if DEBUG then print("[WEBHOOK] Sending: " .. message) end
+    if DEBUG then 
+        print("[WEBHOOK] Sending combined message with " .. #detectedFish .. " fish:")
+        for _, fish in ipairs(detectedFish) do
+            print("  • " .. fish.name .. " @ " .. fish.percent .. "%")
+        end
+    end
     
+    -- Send the webhook
     local success, response = pcall(function()
         return HttpService:PostAsync(WEBHOOK_URL, body, Enum.HttpContentType.ApplicationJson)
     end)
     
     if success then
-        print("[WEBHOOK] ✓ Sent: " .. fishName .. " @ " .. percent .. "%")
+        print("[WEBHOOK] ✓ Sent combined message with " .. #detectedFish .. " fish")
     else
         warn("[WEBHOOK] ✗ Failed: " .. tostring(response))
         
@@ -189,146 +207,125 @@ local function SendWebhook(fishName, percent)
                 request({
                     Url = WEBHOOK_URL,
                     Method = "POST",
-                    Headers = headers,
+                    Headers = {["Content-Type"] = "application/json"},
                     Body = body
                 })
             end)
             if success2 then
-                print("[WEBHOOK] ✓ Sent via request")
+                print("[WEBHOOK] ✓ Sent via request method")
             end
         end
     end
 end
 
--- Track sent fish to avoid duplicates
-local sentFish = {}
-local COOLDOWN = 300 -- 5 minutes cooldown
-
--- Main scan function
+-- Main scan function - collects all fish with Able=true
 local function scanFishPPPart()
     if DEBUG then print("\n" .. string.rep("=", 60)) end
-    if DEBUG then print("[SCAN START] Scanning FishPPPart indices 0-150 for Able=true...") end
+    if DEBUG then print("[SCAN START] Scanning FishPPPart for fish with Able=true...") end
     
     local totalScanned = 0
     local enabledCount = 0
     local wantedCount = 0
-    local sentCount = 0
+    local detectedFish = {}
     
     for folderIndex, folder in ipairs(folders) do
         if DEBUG then print("\n[SCAN] Folder" .. folderIndex .. " (" .. folder.Name .. ")") end
         
-        -- Scan indices 0 to 150
-        for i = 0, 150 do
+        -- Scan all children (not just 0-150)
+        local children = folder:GetChildren()
+        if DEBUG then print("[INFO] " .. folder.Name .. " has " .. #children .. " children") end
+        
+        -- Scan indices 0 to 150 (or all if less)
+        local maxIndex = math.min(150, #children - 1)
+        
+        for i = 0, maxIndex do
             totalScanned = totalScanned + 1
             
             -- Get child at index i
-            local children = folder:GetChildren()
-            if i + 1 <= #children then
-                local fishModel = children[i + 1]
+            local fishModel = children[i + 1]
+            
+            -- Get fish info
+            local name, action, enabled = getFishInfo(fishModel)
+            
+            if name and enabled then
+                enabledCount = enabledCount + 1
                 
-                -- Get fish info
-                local name, action, enabled = getFishInfo(fishModel)
-                
-                if name and enabled then
-                    enabledCount = enabledCount + 1
+                -- Check if it's a wanted fish
+                if isWantedFish(name) then
+                    wantedCount = wantedCount + 1
                     
-                    if DEBUG then
-                        print("[ABLE] " .. name .. " has Able=true (Index " .. i .. ")")
-                    end
-                    
-                    -- Check if it's a wanted fish
-                    if isWantedFish(name) then
-                        wantedCount = wantedCount + 1
+                    -- Extract percentage
+                    local percent = extractPercentage(name, action)
+                    if percent then
+                        -- Add to detected fish list
+                        table.insert(detectedFish, {
+                            name = name,
+                            percent = percent,
+                            folder = folder.Name,
+                            index = i
+                        })
                         
-                        -- Extract percentage
-                        local percent = extractPercentage(name, action)
-                        if percent then
-                            -- Check cooldown
-                            local now = tick()
-                            local lastSent = sentFish[name] or 0
-                            
-                            if now - lastSent >= COOLDOWN then
-                                if DEBUG then
-                                    print("[FOUND] ✓ " .. name .. " @ " .. percent .. "% (Index " .. i .. " in " .. folder.Name .. ")")
-                                end
-                                
-                                -- Send webhook
-                                SendWebhook(name, percent)
-                                sentFish[name] = now
-                                sentCount = sentCount + 1
-                            else
-                                if DEBUG then
-                                    local remaining = COOLDOWN - (now - lastSent)
-                                    print("[COOLDOWN] " .. name .. " @ " .. percent .. "% (" .. math.floor(remaining) .. "s cooldown)")
-                                end
-                            end
-                        elseif DEBUG then
-                            print("[NO-PERCENT] " .. name .. " (no valid percentage)")
+                        if DEBUG then
+                            print("[DETECT] ✓ " .. name .. " @ " .. percent .. "% (Index " .. i .. " in " .. folder.Name .. ")")
                         end
                     elseif DEBUG then
-                        print("[NOT-WANTED] " .. name .. " (Able enabled but not wanted)")
+                        print("[NO-PERCENT] " .. name .. " (no valid percentage)")
                     end
-                elseif DEBUG and i % 30 == 0 then
-                    -- Print progress every 30 indices
-                    print("[PROGRESS] Folder" .. folderIndex .. ": Scanned " .. i .. "/150 indices")
+                elseif DEBUG then
+                    print("[NOT-WANTED] " .. name .. " (Able enabled but not wanted)")
                 end
-            else
-                -- No child at this index
-                if DEBUG and i == 0 then
-                    print("[INFO] Folder" .. folderIndex .. " has " .. #children .. " children total")
-                end
+            elseif DEBUG and i % 40 == 0 and i > 0 then
+                -- Print progress every 40 indices
+                print("[PROGRESS] Folder" .. folderIndex .. ": Scanned " .. i .. "/" .. maxIndex .. " indices")
             end
         end
     end
     
+    -- Send combined webhook if any fish found
+    if #detectedFish > 0 then
+        SendCombinedWebhook(detectedFish)
+    end
+    
     if DEBUG then
         print("\n[SCAN END] Summary:")
-        print("  Total indices checked: " .. totalScanned)
+        print("  Total indices scanned: " .. totalScanned)
         print("  Models with Able=true: " .. enabledCount)
         print("  Wanted fish with Able=true: " .. wantedCount)
-        print("  Webhooks sent: " .. sentCount)
+        print("  Fish ready for collection: " .. #detectedFish)
         print(string.rep("=", 60))
     end
 end
 
 -- Start scanning
 local lastScan = 0
+local isScanning = false
+
 RunService.Heartbeat:Connect(function()
     local now = tick()
     if now - lastScan < SCAN_INTERVAL then return end
+    if isScanning then return end
+    
+    isScanning = true
     lastScan = now
     
     scanFishPPPart()
+    isScanning = false
 end)
 
 -- Initial info
-print("\n[FishScanner] Active!")
+print("\n" .. string.rep("=", 50))
+print("[FishScanner] Active!")
 print("  • Scanning: FishPPPart.Folder1/2/3")
-print("  • Indices: 0 to 150 in each folder")
 print("  • Checking: Attribute 'Able' = true")
 print("  • Threshold: ≥ " .. THRESHOLD .. "%")
 print("  • Scan interval: " .. SCAN_INTERVAL .. " seconds")
-print("  • Cooldown: " .. COOLDOWN .. " seconds per fish")
+print("  • Output: Combined webhook message")
 print("  • Wanted fish types: " .. #wantedFishTypes)
-
--- Test the Able attribute check
-if DEBUG then
-    print("\n[TEST] Testing Able attribute detection...")
-    -- Test a few models to see their Able attribute
-    for _, folder in ipairs(folders) do
-        local children = folder:GetChildren()
-        if #children > 0 then
-            local testModel = children[1]
-            local ableValue = testModel:GetAttribute("Able")
-            print("[TEST] " .. testModel.Name .. ": Able = " .. tostring(ableValue))
-            break
-        end
-    end
-end
+print(string.rep("=", 50))
 
 -- Send startup notification
 wait(2)
-local startupMsg = "**[STARTUP]** FishScanner active! Scanning FishPPPart for fish with Able=true."
+local startupMsg = "**[STARTUP]** FishScanner active! Will send combined updates every " .. SCAN_INTERVAL .. " seconds."
 local payload = {content = startupMsg}
 local body = HttpService:JSONEncode(payload)
 
